@@ -116,26 +116,36 @@ function sweep(streams: readonly CrossingStream[]): void {
   }
 }
 
-/** 사건 규모별로 필요한 민감도. 슬라이더 눈금의 근거다. */
+/**
+ * 사건 규모별로 필요한 민감도. 슬라이더 눈금의 근거다.
+ *
+ * 분위수를 낮출수록 그 규모 사건을 더 많이 잡아 눈금이 오른쪽으로 간다.
+ * 어느 분위수가 실제 차트 감각과 맞는지 보려고 여러 개를 같이 뽑는다.
+ */
 function scaleMarkers(streams: readonly CrossingStream[]): void {
-  console.log("");
-  console.log("═".repeat(76));
-  console.log("사건 규모별 필요 민감도 (규모 = 이상치였던 가장 긴 프레임)");
-  console.log("");
-  console.log(
-    pad("규모", 10) +
-      padStart("필요 백분위", 14) +
-      padStart("슬라이더", 10) +
-      padStart("사건 수", 10),
-  );
-
-  for (const marker of measureScaleMarkers(streams)) {
+  for (const reference of [99, 98.5, 98, 97, 96]) {
+    console.log("");
+    console.log("=".repeat(76));
+    console.log(`사건 규모별 눈금 · 사건 기준선 ${reference}`);
+    console.log("");
     console.log(
-      pad(marker.timeframe, 10) +
-        padStart(marker.percentile.toFixed(3), 14) +
-        padStart(String(marker.sliderPosition), 10) +
-        padStart(marker.eventCount.toLocaleString(), 10),
+      pad("규모", 10) +
+        padStart("사건/일", 10) +
+        padStart("슬라이더", 10) +
+        padStart("실제/일", 10) +
+        padStart("사건 수", 10),
     );
+
+    for (const marker of measureScaleMarkers(streams, reference)) {
+      const actual = measureChannelCurve(streams, [marker.sliderPosition])[0];
+      console.log(
+        pad(marker.timeframe, 10) +
+          padStart(marker.targetPerDay.toFixed(1), 10) +
+          padStart(String(marker.sliderPosition), 10) +
+          padStart((actual?.perDay ?? 0).toFixed(1), 10) +
+          padStart(marker.eventCount.toLocaleString(), 10),
+      );
+    }
   }
 }
 
@@ -189,7 +199,7 @@ async function main(): Promise<void> {
   console.log("");
   console.log(`2단계 · 파라미터 스윕 (${streams[0]?.measuredDays.toFixed(0)}일 측정)`);
 
-  sweep(streams);
+
   scaleMarkers(streams);
   channelCurve(streams);
 }

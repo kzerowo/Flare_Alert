@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-_Last updated: 2026-07-27 23:46_
+_Last updated: 2026-07-28 01:34_
 
 ## Project Overview
 
@@ -97,17 +97,19 @@ No `strength` field; the alert happens or it doesn't. Frame counts are not aggre
 
 ### Sensitivity Model
 
-**One alert per channel.** Timeframes are NOT an evaluation axis — the only firing criterion is sensitivity. Frames appear solely as reference tick marks on the slider, meaning "at this position, spikes big enough to be visible on that chart start alerting."
+**One alert per channel.** Timeframes are NOT an evaluation axis — the only firing criterion is sensitivity. Frames appear solely as reference tick marks on the slider, meaning "at this position, spikes of that size fire as often as they actually occur."
 
-`FRAME_SCALE_PERCENTILE` places those marks: 1m at slider 56 (rightmost), 1d at 22 (leftmost). Short bursts only disturb the 1m window → weak signal → need high sensitivity. Large sustained moves disturb every window → strong signal → caught even at low sensitivity.
+`FRAME_SCALE_PERCENTILE` places those marks: 1m at slider 72 (rightmost, ~16.6 alerts/day) because 1m-or-larger events occur ~16.2 times per day; 1d at slider 1 (leftmost, ~0.6 alerts/day) because only ~0.3 such events occur daily. Each mark is the position where channel alerts precisely match the *frequency* of events in that scale class.
 
-**A previous version had these markers reversed**, defined as "threshold where frame X alone fires ~1/day". That computes correctly but answers the wrong question. Don't reintroduce it.
+**Mechanism**: Event scale is defined as the longest timeframe whose signal crossed anomaly threshold during a merge window. Backtest counts how often each scale occurs, then binary-searches the slider to find the position where channel alerts match that frequency. This ensures the UI tick mark at 1m position will actually generate ~16.2 alerts per day when at 1m position, validating the label.
+
+**Historical note**: An earlier approach measured the *percentile (median signal)* of events within each scale class, yielding only ~9.4 daily alerts at the 1m position, mismatched to observed 15–20 range. The current method directly optimizes event frequency instead.
 
 An `Alert` carries `scale` (the longest anomalous timeframe) as a descriptive label — "1시간봉급 급등". It describes an alert; it never creates one.
 
 - Meaning: "alert on the top (100 − sensitivity)% of observations"
 - **Not an integer.** The useful range is compressed into 99–100, so the UI must handle decimals. Default is `99.887` (15-minute-scale rate, ≈3–4 alerts/day per coin in a channel).
-- `SENSITIVITY_MIN` 90, `SENSITIVITY_MAX` 99.99
+- `SENSITIVITY_MIN` 90, `SENSITIVITY_MAX` 99.995 (raised so the quiet end can reach day-scale event rates)
 
 **Slider conversion** (`packages/core/src/sensitivity.ts`):
 - UI displays integer positions 1–100, where rightward motion increases alert frequency
@@ -138,26 +140,33 @@ Confirmed by the first backtest (2026-07-27):
 
 | Constant | Value | Note |
 |---|---|---|
-| `SENSITIVITY_DEFAULT` | 99.887 | Aligned to 15-minute scale; maps to slider position 36 |
-| `FRAME_SCALE_PERCENTILE` | per-frame constants | Percentile at which that event size would "naturally" reach ~1 alert/day if isolated |
-| `CHANNEL_RATE_CURVE` | single array | Alert frequency (per coin, per channel) at each slider position |
+| `SENSITIVITY_DEFAULT` | 99.8743 | Aligned to 15-minute scale; maps to slider position 43 (~3.8 alerts/day per coin) |
+| `SENSITIVITY_MAX` | 99.995 | Left bound; lower samples (60 per key) approach statistical noise limits; tuned to reach ~0.64 alerts/day |
+| `FRAME_SCALE_PERCENTILE` | per-frame constants | Percentile at which that event frequency would naturally fire at its labeled slider position |
+| `CHANNEL_RATE_CURVE` | single array | Alert frequency (per coin, per channel) at each slider position; measured 2026-04-01 to 2026-06-30 |
 
 **Event Scale Labeling & Alert Frequency** (`packages/core/src/constants.ts`):
 
 The backtest revealed that event size (1m spike vs. 1d spike) and event strength are independent. A sensitivity set for large events (low percentile) will catch all the small events too. So instead of per-frame alert budgets, the UI labels each slider position with the *smallest event size* it would typically catch in isolation.
 
+**Scale marker definition** (recalibrated 2026-07-28): "At this slider position, the channel will fire as often as events of that scale-or-larger actually occur." The 1-minute marker fires ~16.6 times per day because minute-scale-or-larger events occur about 16.2 times per day. Measurement counts actual event frequency (how many times that scale class or larger occurred) and uses binary search to find the slider position where channel alerts match that frequency.
+
+Prior method (discarded): measured the *median* of per-frame signals, which by definition caught only ~50% of events of that scale. This produced only 9.4 daily alerts at the 1m position, well below the sensed 15–20 range.
+
 Backtest measured two things:
 
-1. **Frame Scale Percentile** (`FRAME_SCALE_PERCENTILE`) — the percentile at which each timeframe, isolated, crosses its own baseline at ~1 alert/day:
+1. **Frame Scale Percentile** (`FRAME_SCALE_PERCENTILE`) — the percentile at which each timeframe's events (counted by frequency, not signal strength) would be caught at a specific slider position. A threshold placed so that "1-minute-scale-or-larger events per day" match "alerts per day" at that slider:
 
-| Frame | Percentile | Slider Position | Meaning |
+| Frame | Events/day | Slider Position | Alerts/day |
 |---|---|---|---|
-| 1m | 99.541 | ~8 | Very aggressive; catches minute-scale volatility |
-| 5m | 99.807 | ~24 | Aggressive; 5-minute impulses |
-| 15m | 99.887 | ~36 | Moderate; default setting |
-| 1h | 99.938 | ~52 | Relaxed; hour-scale moves |
-| 4h | 99.952 | ~62 | Very relaxed; 4-hour trends |
-| 1d | 99.957 | ~66 | Daily close moves only |
+| 1m | 16.2 | 72 | 16.6 |
+| 5m | 7.2 | 56 | 7.6 |
+| 15m | 3.7 | 43 | 3.8 |
+| 1h | 1.5 | 26 | 1.5 |
+| 4h | 0.7 | 8 | 0.7 |
+| 1d | 0.3 | 1 | 0.6 |
+
+The event threshold (percentile 98) is *not* derived from data—it is a tuning knob set to match observed chart behavior: "1-minute spikes should fire 15–20 times per day." Lowering from 99 to 98 shifted 1m from 12.6 to 16.2 alerts, into target range.
 
 These serve as UI tick marks. Users see "1분봉급 / 5분봉급 / 15분봉급 / 1시간봉급 / 4시간봉급 / 1일봉급" at these positions, indicating event size, not dictating frame-specific behavior.
 
@@ -165,7 +174,12 @@ These serve as UI tick marks. Users see "1분봉급 / 5분봉급 / 15분봉급 /
 
 The curve values are interpolated linearly by `estimateAlertsPerDay(sliderPosition)` when rendering the slider preview.
 
-Labels merge if tick positions differ by ≤4. The file `apps/backtest/src/event-scale.ts` (replacing `frame-standards.ts`) measures both the scale markers and the channel rate curve.
+Labels merge if tick positions differ by ≤4. The file `apps/backtest/src/event-scale.ts` measures both the scale markers and the channel rate curve via `measureScaleMarkers()` (which counts events per frame) and `measureChannelCurve()` (which simulates channel alerts at each slider position).
+
+Confirmed by recalibration (2026-07-28):
+- **`FRAME_SCALE_PERCENTILE`** — All six timeframes now placed by event frequency, not signal percentile.
+- **`SENSITIVITY_MAX`** — Raised from 99.99 to 99.995 to accommodate day-scale events at the left edge.
+- **`SENSITIVITY_DEFAULT`** — 99.8743 (was 99.887); adjusted for new 1m frequency target (16.2 vs 15-20 range).
 
 Still carrying `TODO(backtest)` in `constants.ts`: `LOOKBACK_WINDOW_COUNT`, `MIN_ELAPSED_SECONDS`, `MIN_QUOTE_VOLUME`, `COOLDOWN_DECAY_CURVE`, `COOLDOWN_TAIL_TIGHTENING`, `PERCENTILE_HISTORY_DAYS`, `MIN_PERCENTILE_SAMPLES`, `MAD_FLOOR_RATIO`.
 

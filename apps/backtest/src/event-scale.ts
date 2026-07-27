@@ -33,10 +33,10 @@ interface ScaledEvent {
   channelSignal: number;
 }
 
-/** 규모 판정에 쓸 기준 백분위. 이보다 높으면 그 프레임이 흔들렸다고 본다. */
-const ANOMALY_REFERENCE = 99;
-
-function collectEvents(stream: CrossingStream): ScaledEvent[] {
+function collectEvents(
+  stream: CrossingStream,
+  anomalyReference: number,
+): ScaledEvent[] {
   const events: ScaledEvent[] = [];
   const mergeWindowMs = FRAME_MERGE_WINDOW_SECONDS * 1000;
   const startAbsSecond = Math.floor(stream.startMs / 1000);
@@ -62,7 +62,7 @@ function collectEvents(stream: CrossingStream): ScaledEvent[] {
     const percentile = stream.percentiles[i] ?? 0;
     const frame = stream.frames[i] ?? 0;
 
-    if (percentile < ANOMALY_REFERENCE) {
+    if (percentile < anomalyReference) {
       continue;
     }
 
@@ -84,16 +84,29 @@ function collectEvents(stream: CrossingStream): ScaledEvent[] {
   return events;
 }
 
-function medianOf(values: number[]): number {
+/**
+ * 분위수. 눈금을 어디에 둘지 정하는 손잡이다.
+ *
+ * 중앙값(0.5)을 쓰면 그 규모 사건의 절반만 잡힌다. "1분봉 기준"이라는
+ * 라벨을 붙이려면 1분봉급 사건 대부분이 잡혀야 하므로 더 낮은 분위수를
+ * 써야 한다. 낮출수록 눈금이 오른쪽으로 가고 알림이 늘어난다.
+ */
+function quantileOf(values: number[], q: number): number {
   if (values.length === 0) {
     return Number.NaN;
   }
+
   const sorted = [...values].sort((a, b) => a - b);
-  const mid = sorted.length >> 1;
-  if (sorted.length % 2 === 1) {
-    return sorted[mid] ?? Number.NaN;
+  const position = q * (sorted.length - 1);
+  const lower = Math.floor(position);
+  const upper = Math.ceil(position);
+
+  if (lower === upper) {
+    return sorted[lower] ?? Number.NaN;
   }
-  return ((sorted[mid - 1] ?? 0) + (sorted[mid] ?? 0)) / 2;
+
+  const weight = position - lower;
+  return (sorted[lower] ?? 0) * (1 - weight) + (sorted[upper] ?? 0) * weight;
 }
 
 export interface ScaleMarker {
@@ -101,7 +114,10 @@ export interface ScaleMarker {
   /** 이 규모의 사건이 통과하려면 필요한 임계 백분위 (중앙값) */
   percentile: number;
   sliderPosition: number;
+  /** 그 규모 이상의 사건 수 */
   eventCount: number;
+  /** 그 규모 이상 사건의 하루 발생 빈도 (= 눈금의 목표 알림 수) */
+  targetPerDay: number;
 }
 
 /**
@@ -110,35 +126,77 @@ export interface ScaleMarker {
  * 규모가 클수록(1d까지 흔들릴수록) 채널 신호가 높아서 더 엄격한 임계에서도
  * 통과한다. 따라서 1d 눈금이 왼쪽, 1m 눈금이 오른쪽에 온다.
  */
+/**
+ * 규모별 사건 발생 빈도로 눈금을 정한다.
+ *
+ * 정의: "이 위치에 두면 그 규모 이상의 급등 개수만큼 알림이 온다."
+ * 1분봉급 이상 사건이 하루 17번 일어나면 1분봉 눈금에서 17번 울려야 한다.
+ *
+ * 앞서 쓴 "규모별 신호의 분위수" 방식은 버렸다. 분위수를 낮춰도 1분봉이
+ * 하루 14회를 넘지 못하는데 눈금은 전부 한 곳에 뭉쳐서, 실제 차트 감각과
+ * 맞추면서 슬라이더 폭을 유지할 방법이 없었다.
+ *
+ * anomalyReference는 "무엇을 사건으로 셀 것인가"의 기준선이다.
+ * 낮출수록 작은 움직임까지 사건으로 세어 전체 빈도가 올라간다.
+ * 이 값을 실제 차트 감각에 맞춰 고른다.
+ */
 export function measureScaleMarkers(
   streams: readonly CrossingStream[],
+  anomalyReference: number,
 ): ScaleMarker[] {
-  const signalsByFrame = new Map<number, number[]>();
+  const countByFrame = new Map<number, number>();
+  let totalDays = 0;
 
   for (const stream of streams) {
-    for (const event of collectEvents(stream)) {
-      const bucket = signalsByFrame.get(event.longestFrame);
-      if (bucket === undefined) {
-        signalsByFrame.set(event.longestFrame, [event.channelSignal]);
-      } else {
-        bucket.push(event.channelSignal);
-      }
+    totalDays += stream.measuredDays;
+    for (const event of collectEvents(stream, anomalyReference)) {
+      countByFrame.set(
+        event.longestFrame,
+        (countByFrame.get(event.longestFrame) ?? 0) + 1,
+      );
     }
   }
 
   return TIMEFRAMES.map((timeframe, frameIndex) => {
-    const signals = signalsByFrame.get(frameIndex) ?? [];
-    const percentile = medianOf(signals);
+    // 그 규모 "이상"의 사건을 센다. 1분봉 눈금은 모든 사건을 포함한다.
+    let cumulative = 0;
+    for (let i = frameIndex; i < TIMEFRAMES.length; i += 1) {
+      cumulative += countByFrame.get(i) ?? 0;
+    }
+
+    const perDay = cumulative / totalDays;
+    const sliderPosition = findPositionForRate(streams, perDay);
 
     return {
       timeframe,
-      percentile,
-      sliderPosition: Number.isNaN(percentile)
-        ? Number.NaN
-        : percentileToSlider(percentile),
-      eventCount: signals.length,
+      percentile: sliderToPercentile(sliderPosition),
+      sliderPosition,
+      eventCount: cumulative,
+      targetPerDay: perDay,
     };
   });
+}
+
+/** 목표 빈도를 내는 슬라이더 위치를 이분 탐색으로 찾는다. */
+function findPositionForRate(
+  streams: readonly CrossingStream[],
+  targetPerDay: number,
+): number {
+  let low = 1;
+  let high = 100;
+
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2);
+    const rate = measureChannelCurve(streams, [mid])[0]?.perDay ?? 0;
+
+    if (rate < targetPerDay) {
+      low = mid + 1;
+    } else {
+      high = mid;
+    }
+  }
+
+  return low;
 }
 
 /**

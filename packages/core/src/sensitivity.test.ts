@@ -93,10 +93,24 @@ describe("사건 규모 눈금", () => {
   });
 
   it("전부 슬라이더 범위 안에 들어온다", () => {
+    // 1일봉급은 왼쪽 끝에 붙는다. 그 규모 사건은 하루 0.3회인데
+    // 슬라이더가 도달 가능한 최저치가 0.64회라 더 왼쪽이 없다.
     for (const timeframe of TIMEFRAMES) {
       const position = percentileToSlider(FRAME_SCALE_PERCENTILE[timeframe]);
-      assert.ok(position > SLIDER_MIN && position < SLIDER_MAX);
+      assert.ok(
+        position >= SLIDER_MIN && position < SLIDER_MAX,
+        `${timeframe} → ${position}`,
+      );
     }
+  });
+
+  it("1분봉급 눈금이 실제 차트 감각과 맞는다", () => {
+    // 하루 15~20회. 백테스트 수치가 아니라 실제 차트를 본 감각에서 나온
+    // 기준이고, 사건 기준선(백분위 98)을 여기에 맞춰 골랐다.
+    const position = percentileToSlider(FRAME_SCALE_PERCENTILE["1m"]);
+    const rate = estimateAlertsPerDay(position);
+
+    assert.ok(rate >= 15 && rate <= 20, `하루 ${rate.toFixed(1)}회`);
   });
 });
 
