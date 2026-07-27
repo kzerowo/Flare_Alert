@@ -2,11 +2,11 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-_Last updated: 2026-07-27 21:32_
+_Last updated: 2026-07-27 21:52_
 
 ## Project Overview
 
-**Flare Alert** is an adaptive volume-spike alert service for cryptocurrency traders. Unlike traditional alert systems that use fixed multipliers (e.g., "3x average"), this uses **percentiles**: one sensitivity slider is calibrated automatically per coin, so the same setting works across symbols of wildly different liquidity.
+**Flare Alert** is an adaptive volume-spike alert service for cryptocurrency traders. Users create **channels**; each channel holds a set of coins and one sensitivity value. Unlike traditional alert systems that use fixed multipliers (e.g., "3x average"), thresholds are percentile-based and calibrated per coin, so one sensitivity works across coins of wildly different liquidity within the same channel.
 
 **Core problem solved**: Fixed multipliers rarely fire on quiet coins and constantly on volatile ones, forcing manual per-symbol tuning. Percentile thresholds are derived from each symbol's own score distribution, so a single setting transfers across symbols. This was verified in backtesting (BTC 200.2 / ETH 193.1 / SOL 204.8 alerts per day at the same setting).
 
@@ -73,11 +73,25 @@ Note: frame merging exists only inside `apps/backtest/src/engine.ts`. It must be
 
 Six timeframes evaluated in lockstep: `1m`, `5m`, `15m`, `1h`, `4h`, `1d`. Windows are aligned to absolute epoch boundaries so `1d` opens at UTC midnight. Candle close is never awaited — a 4h window that spikes 6 minutes in is judged on 6 minutes of velocity.
 
+### Channel Model
+
+A `Channel` = coins + one sensitivity + timeframes + delivery methods. Users have many; the same coin may appear in several channels with different sensitivities.
+
+**Critical split**: score S and percentile are *independent of channels* — they are properties of a symbol/timeframe, not of user settings. Cooldown and frame merging are *per channel* (one channel firing must not silence another watching the same coin). So the detector computes the expensive part once per symbol and applies each channel's threshold to the result. State keys are `ChannelSeriesKey`, not `SeriesKey`.
+
+`apps/backtest` already has this shape (extract crossings once → sweep configs cheaply).
+
 ### Sensitivity Model
 
 - Meaning: "alert on the top (100 − sensitivity)% of observations"
 - **Not an integer.** The useful range is compressed into 99–100, so the UI must handle decimals. Default is `99.9` (≈4–6 alerts/day on majors).
 - `SENSITIVITY_MIN` 90, `SENSITIVITY_MAX` 99.99
+
+### Delivery
+
+Per channel, any combination of `browser` and `telegram`.
+
+Browser notifications use the in-page Notification API and only work **while a tab is open** — no service worker, no Web Push. Telegram covers the away-from-desk case. Because a closed tab is normal, `Notifier.send` returns `boolean` rather than throwing: a failed browser delivery is expected, a failed Telegram delivery is a fault.
 
 ### Score Semantics
 
@@ -131,15 +145,18 @@ Crossing extraction takes ~1 minute per symbol and is cached to `data/crossings/
 
 ## Architecture Decisions
 
-See `docs/decisions.md` (Korean) for full rationale. Nine decisions recorded, including:
+See `docs/decisions.md` (Korean) for full rationale. Eleven decisions recorded, including:
 
 1. Median/MAD instead of mean/stddev — a single spike drags a mean-based baseline up and mutes alerts for hours
 2. Percentile instead of multiplier — cross-symbol portability (frequency predictability was retracted after backtesting)
 3. aggTrade + 1s buckets instead of klines — kline streams delay detection by up to 60s
 4. Time-decay cooldown instead of "must exceed last alert" — the latter never resets after a big spike
+5. Channel-based sensitivity instead of per-symbol or account-wide — allows targeting different use cases (quiet majors vs aggressive altcoin hunting) without manual per-symbol tuning
 7. Cooldown multiplies the allowed tail fraction rather than adding to the percentile — adding overflows the 100 ceiling at high sensitivity and becomes a total mute
 8. Frame merge absorbs into an already-sent alert rather than delaying dispatch — delaying would negate the reason for using aggTrade
 9. Fixed-bin histogram on an asinh axis with a Fenwick tree, not full sample retention
+10. Channel model with **channel-scoped** cooldown/merge but **symbol-scoped** score/percentile — expensive computation per symbol, threshold application per channel
+11. Browser notifications (Notification API while tab is open) + Telegram simultaneously per channel — covers both idle and away-from-desk cases
 
 ## Environment Variables
 

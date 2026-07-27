@@ -120,15 +120,32 @@ export type Sensitivity = number;
 /** 프레임별 개별 조정. 기본은 비어 있고, 고급 설정에서만 건드린다. */
 export type TimeframeOverrides = Partial<Record<Timeframe, Sensitivity>>;
 
-/** 감시 대상 하나에 대한 설정. */
-export interface WatchConfig {
+/** 알림 전달 수단. 채널마다 여러 개를 동시에 켤 수 있다. */
+export type DeliveryMethod = "browser" | "telegram";
+
+/**
+ * 채널. 사용자가 만드는 감시 단위다.
+ *
+ * 코인 묶음 하나에 민감도 하나가 붙는다. 채널 안에 규모가 전혀 다른
+ * 종목을 섞어도 같은 민감도가 각 종목의 자기 분포 기준으로 해석되므로,
+ * 종목별로 임계를 따로 맞출 필요가 없다. 이게 이 서비스의 존재 이유다.
+ *
+ * 사용자는 채널을 여러 개 만든다. 같은 코인이 여러 채널에 들어갈 수 있고,
+ * 그때는 채널마다 임계·쿨다운·병합이 독립적으로 적용된다.
+ */
+export interface Channel {
   id: string;
-  target: SymbolRef;
+  /** 사용자가 붙이는 이름. 예: "메이저 단타", "김치 프리미엄 감시" */
+  name: string;
   enabled: boolean;
-  /** 기본 민감도. 슬라이더 하나가 이 값을 바꾼다. */
+  /** 이 채널이 감시하는 종목들. */
+  symbols: SymbolRef[];
+  /** 채널 민감도. 채널 안 모든 종목에 같은 값이 적용된다. */
   sensitivity: Sensitivity;
   /** 감시할 프레임 목록. 비어 있으면 전체 프레임. */
   timeframes: Timeframe[];
+  /** 전달 수단. 비어 있으면 감지는 하되 알림이 나가지 않는다. */
+  delivery: DeliveryMethod[];
   /** 고급 설정에서만 노출되는 프레임별 예외값. */
   overrides?: TimeframeOverrides;
 }
@@ -136,7 +153,12 @@ export interface WatchConfig {
 /** 사용자 단위 설정. */
 export interface UserSettings {
   userId: string;
-  watches: WatchConfig[];
+  channels: Channel[];
+  /**
+   * 계정 단위 텔레그램 연결.
+   * 채널이 "telegram"을 켰을 때 이 연결로 발송된다. 채널마다 따로 연결하게
+   * 하면 사용자가 봇을 여러 번 연결해야 해서 계정 단위로 둔다.
+   */
   telegram: TelegramTarget | null;
   /** 알림을 받지 않을 시간대 (KST 기준 "HH:mm"). 미설정이면 24시간 수신. */
   quietHours?: { from: string; to: string };
@@ -149,15 +171,48 @@ export interface TelegramTarget {
   verifiedAtMs: number | null;
 }
 
+/**
+ * 브라우저 수신 대상.
+ *
+ * 지금은 탭이 열려 있는 동안만 동작한다. 페이지가 서버와 연결을 유지하고,
+ * 알림이 오면 Notification API로 띄운다. 탭을 닫으면 이 경로는 끊긴다.
+ * 탭이 닫혀도 받으려면 Web Push(서비스 워커 + VAPID)가 필요한데
+ * 아직 범위 밖이다.
+ */
+export interface BrowserTarget {
+  /** 열려 있는 세션 식별자. 연결이 끊기면 무효가 된다. */
+  sessionId: string;
+  connectedAtMs: number;
+}
+
+/** 발송 시점에 실제로 쓰이는 수신 대상. */
+export type DeliveryTarget =
+  | { method: "browser"; target: BrowserTarget }
+  | { method: "telegram"; target: TelegramTarget };
+
 // ---------------------------------------------------------------------------
 // 알림 파이프라인
 // ---------------------------------------------------------------------------
 
+/**
+ * 채널 단위 상태의 키.
+ *
+ * 쿨다운과 병합은 채널마다 독립이다. 같은 코인을 두 채널이 감시하면
+ * 한쪽에서 알림이 나갔다고 다른 쪽이 조용해지면 안 된다.
+ *
+ * 반면 점수 S와 퍼센타일은 채널과 무관하다. 종목·프레임의 성질이지
+ * 사용자 설정의 함수가 아니다. 그래서 detector는 무거운 계산을 종목당
+ * 한 번만 하고, 그 결과에 채널별 임계만 각각 적용한다.
+ */
+export interface ChannelSeriesKey extends SeriesKey {
+  channelId: string;
+}
+
 /** 임계 판정을 통과했지만 아직 필터를 거치지 않은 후보. */
 export interface AlertCandidate {
-  key: SeriesKey;
+  key: ChannelSeriesKey;
   score: AnomalyScore;
-  /** 판정에 실제로 적용된 민감도 (쿨다운 상향분 반영 전 원본값) */
+  /** 판정에 실제로 적용된 민감도 (쿨다운 조임 반영 전 원본값) */
   sensitivity: Sensitivity;
   /** 쿨다운 감쇠까지 반영한 실효 임계 백분위 */
   effectiveThreshold: number;
@@ -183,6 +238,8 @@ export type RejectionReason =
  */
 export interface MergedAlert {
   id: string;
+  /** 이 알림을 발생시킨 채널. 사용자에게 어느 채널인지 보여줘야 한다. */
+  channelId: string;
   target: SymbolRef;
   firedAtMs: number;
   /** 병합된 프레임들. 강도 순 정렬. */
@@ -207,10 +264,10 @@ export interface AlertFrameDetail {
 
 /** 쿨다운 상태. 알림 직후 임계를 올리고 시간에 따라 원복시킨다. */
 export interface CooldownState {
-  key: SeriesKey;
+  key: ChannelSeriesKey;
   lastFiredAtMs: number;
-  /** 발사 직후 더해진 임계 상향분 (백분위 포인트) */
-  initialBoost: number;
+  /** 발사 직후 꼬리 비율을 조인 배수 */
+  tightening: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -263,7 +320,30 @@ export interface FrameMerger {
   merge(candidates: readonly AlertCandidate[], atMs: number): MergedAlert[];
 }
 
-/** 최종 알림 발송 채널. */
+/**
+ * 최종 알림 발송 수단 하나.
+ *
+ * 브라우저와 텔레그램은 성질이 다르다. 브라우저는 탭이 닫히면 대상이
+ * 사라지고, 텔레그램은 사용자가 없어도 전송된다. 그래서 실패를 같은
+ * 방식으로 다룰 수 없다 — 브라우저 실패는 정상이고, 텔레그램 실패는 사고다.
+ */
 export interface Notifier {
-  send(alert: MergedAlert, target: TelegramTarget): Promise<void>;
+  readonly method: DeliveryMethod;
+  /** 대상이 유효하지 않으면(예: 세션 종료) false. 예외를 던지지 않는다. */
+  send(alert: MergedAlert, target: DeliveryTarget): Promise<boolean>;
+}
+
+/** 채널 설정에 따라 여러 수단으로 동시에 내보낸다. */
+export interface AlertDispatcher {
+  dispatch(
+    alert: MergedAlert,
+    channel: Channel,
+    settings: UserSettings,
+  ): Promise<DeliveryResult[]>;
+}
+
+export interface DeliveryResult {
+  method: DeliveryMethod;
+  delivered: boolean;
+  error?: string;
 }

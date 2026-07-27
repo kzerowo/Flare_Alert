@@ -9,8 +9,8 @@ export default function HomePage() {
       </h1>
 
       <p className="max-w-md text-flare-muted">
-        슬라이더 하나로 전 종목에 적용되는 거래량 급등 알림. 코인마다 임계치를
-        따로 맞출 필요가 없습니다.
+        감시할 코인을 채널로 묶고 민감도만 정하세요. 코인마다 임계치를 따로
+        맞출 필요 없이, 종목별 평소 거래량에 맞춰 자동으로 보정됩니다.
       </p>
 
       <span className="rounded-full border border-flare-accent/40 px-4 py-1 text-sm text-flare-accent">
