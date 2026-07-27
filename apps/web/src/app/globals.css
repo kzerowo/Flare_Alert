@@ -1,0 +1,13 @@
+@import "tailwindcss";
+
+@theme {
+  --color-flare-bg: #0b0d12;
+  --color-flare-surface: #141821;
+  --color-flare-accent: #ff7a29;
+  --color-flare-muted: #8b93a7;
+}
+
+body {
+  background-color: var(--color-flare-bg);
+  color: #e8eaf0;
+}

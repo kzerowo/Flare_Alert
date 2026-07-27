@@ -1,0 +1,7 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+
+# sharp는 Next.js 이미지 최적화에 쓰이는 네이티브 바이너리다. 빌드 스크립트 허용.
+allowBuilds:
+  sharp: true

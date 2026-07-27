@@ -1,0 +1,20 @@
+{
+  "name": "flare-alert",
+  "version": "0.1.0",
+  "private": true,
+  "description": "거래량 급등 알림 서비스 - 적응형 민감도 기반",
+  "packageManager": "pnpm@11.17.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "clean": "pnpm -r clean",
+    "dev:web": "pnpm --filter @flare-alert/core build && pnpm --filter @flare-alert/web dev",
+    "dev:detector": "pnpm --filter @flare-alert/core build && pnpm --filter @flare-alert/detector dev"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3"
+  }
+}
