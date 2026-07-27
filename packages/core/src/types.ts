@@ -108,9 +108,12 @@ export interface AnomalyScore {
 // ---------------------------------------------------------------------------
 
 /**
- * 사용자 민감도. 1~100 정수.
+ * 사용자 민감도.
  * 값의 의미: "상위 (100 - sensitivity)%에 드는 사건만 알린다".
- * 즉 95면 상위 5%. 슬라이더 하나로 전 종목에 동일하게 적용된다.
+ * 즉 99.9면 상위 0.1%. 슬라이더 하나로 전 종목에 동일하게 적용된다.
+ *
+ * 정수가 아니다. 매 초 평가하는 구조라 유효 구간이 99~100에 몰려 있어서
+ * 소수점이 필요하다. 근거는 docs/algorithm.md "백테스트 결과" 참고.
  */
 export type Sensitivity = number;
 
@@ -229,15 +232,22 @@ export interface BaselineCalculator {
   compute(velocities: readonly number[]): VolatilityBaseline;
 }
 
-/** 창 + 기준선에서 S를 계산한다. */
+/**
+ * 창 + 기준선에서 S를 계산한다.
+ * MAD가 0이라 점수를 정의할 수 없으면 null.
+ */
 export interface ScoreCalculator {
-  compute(window: RollingWindow, baseline: VolatilityBaseline): number;
+  compute(window: RollingWindow, baseline: VolatilityBaseline): number | null;
 }
 
 /** S를 해당 시리즈의 과거 분포에서 백분위로 환산한다. */
 export interface PercentileEstimator {
-  /** 새 관측치를 분포에 반영한다. */
-  observe(key: SeriesKey, score: number): void;
+  /**
+   * 새 관측치를 분포에 반영한다.
+   * atMs는 오래된 표본을 버리는 기준이다. 백테스트에서도 실시간과 같은
+   * 동작을 얻으려면 시스템 시각이 아니라 데이터의 시각이어야 한다.
+   */
+  observe(key: SeriesKey, score: number, atMs: number): void;
   /** 백분위(0~100). 표본이 부족하면 null. */
   toPercentile(key: SeriesKey, score: number): number | null;
 }

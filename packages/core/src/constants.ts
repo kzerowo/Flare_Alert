@@ -20,10 +20,20 @@ export const TIMEFRAME_MINUTES: Record<Timeframe, number> = {
 /** 집계 버킷 해상도(ms). 봉 마감을 기다리지 않기 위한 최소 단위. */
 export const BUCKET_RESOLUTION_MS = 1000;
 
-/** 민감도 슬라이더 범위. */
-export const SENSITIVITY_MIN = 1;
-export const SENSITIVITY_MAX = 100;
-export const SENSITIVITY_DEFAULT = 95;
+/**
+ * 민감도 슬라이더 범위.
+ *
+ * 백테스트 결과 실제로 쓸 만한 구간은 99~100 사이에 몰려 있다.
+ * 매 초 평가하므로 "상위 5%"라도 하루 4천 번 넘게 발생하고,
+ * 쿨다운과 병합을 최대로 걸어도 대형 종목에서 하루 30회 아래로 내려가지 않는다.
+ * 자세한 수치는 docs/algorithm.md "백테스트 결과" 참고.
+ *
+ * 그래서 정수 1~100 슬라이더로는 유효 구간을 표현할 수 없다.
+ * UI는 소수점을 표현할 수 있어야 한다 (99.9 = 상위 0.1%).
+ */
+export const SENSITIVITY_MIN = 90;
+export const SENSITIVITY_MAX = 99.99;
+export const SENSITIVITY_DEFAULT = 99.9;
 
 /** 견적 통화. 거래대금 하한을 비교할 때 단위를 맞추는 데 쓴다. */
 export const QUOTE_CURRENCY: Record<Exchange, string> = {
@@ -79,30 +89,45 @@ export const MIN_QUOTE_VOLUME: Record<Exchange, number> = {
 };
 
 /**
- * TODO(backtest): 쿨다운 지속시간(초).
- * 알림 직후 임계를 올렸다가 이 시간에 걸쳐 원래 값으로 되돌린다.
- * "직전 알림보다 큰 거래량이어야 함" 방식은 쓰지 않는다 (docs/decisions.md 4번).
+ * 쿨다운 지속시간(초). 1차 백테스트 반영 (2026-07-27).
+ *
+ * 초기 후보값의 3배로 잡았다. 다만 효과 자체가 작다는 점을 알아둘 것 —
+ * 1배에서 10배까지 훑어도 알림 수는 10% 남짓 움직인다. 큰 사건은 임계를
+ * 조여도 그대로 통과하기 때문이다. 빈도를 실제로 결정하는 건 아래
+ * FRAME_MERGE_WINDOW_SECONDS다.
  */
 export const COOLDOWN_DURATION_SECONDS: Record<Timeframe, number> = {
-  "1m": 300,
-  "5m": 900,
-  "15m": 1800,
-  "1h": 3600,
-  "4h": 7200,
-  "1d": 14400,
+  "1m": 900,
+  "5m": 2700,
+  "15m": 5400,
+  "1h": 10800,
+  "4h": 21600,
+  "1d": 43200,
 };
 
 /**
- * TODO(backtest): 알림 직후 임계 상향분 (백분위 포인트).
- * 민감도 95에 상향분 4면 발사 직후에는 사실상 99가 되고,
- * 쿨다운 시간에 걸쳐 다시 95로 내려온다.
+ * TODO(backtest): 알림 직후 허용 꼬리 비율을 몇 배로 조일지.
+ *
+ * 백분위에 직접 더하지 않는다. 민감도 99에 +4를 하면 103이 되어
+ * 상한(100)을 넘고 쿨다운 동안 완전 묵음이 되는데, 그건 우리가 기각한
+ * 고정 시간 묵음과 같아진다.
+ *
+ * 대신 꼬리 비율에 곱한다. 값이 5면 민감도 95(상위 5%)는 발사 직후
+ * 상위 1%로 조여졌다가 쿨다운에 걸쳐 5%로 돌아온다. 민감도 99(상위 1%)면
+ * 0.2%로 조여진다. 어느 쪽이든 100을 넘지 않고 의미가 같다.
  */
-export const COOLDOWN_INITIAL_BOOST = 4;
+export const COOLDOWN_TAIL_TIGHTENING = 5;
 
 /**
  * TODO(backtest): 쿨다운 감쇠 곡선.
- * linear는 단순하지만 초반에 너무 빨리 풀리고,
- * exponential은 초반을 강하게 막지만 꼬리가 길게 남는다.
+ *
+ * 두 곡선 모두 쿨다운이 끝나는 지점에서 정확히 0이 되도록 정규화한다.
+ * 그렇게 맞추면 exponential이 linear보다 구간 내내 빨리 풀린다
+ * (30% 지점에서 0.375 대 0.7). "지수는 꼬리가 길다"는 통념과 반대인데,
+ * 꼬리가 길어 보이는 건 정규화하지 않은 exp(-x)를 떠올릴 때의 이야기다.
+ *
+ * 즉 exponential은 "직후만 짧고 강하게 막는" 쪽, linear는 "고르게 오래
+ * 막는" 쪽이다. 어느 쪽이 나은지는 아직 비교하지 않았다.
  */
 export const COOLDOWN_DECAY_CURVE: "linear" | "exponential" = "exponential";
 
@@ -120,10 +145,17 @@ export const PERCENTILE_HISTORY_DAYS = 14;
 export const MIN_PERCENTILE_SAMPLES = 200;
 
 /**
- * TODO(backtest): 프레임 병합 시간 창(초).
- * 이 시간 안에 여러 프레임이 임계를 넘으면 같은 사건으로 보고 하나로 묶는다.
+ * 프레임 병합 시간 창(초). 1차 백테스트 반영 (2026-07-27).
+ *
+ * 이 시간 안에 같은 종목에서 추가로 임계를 넘으면 같은 사건으로 보고
+ * 이미 나간 알림에 흡수한다. 후보를 모으려고 발사를 미루지는 않는다.
+ * 지연을 줄이려고 aggTrade까지 쓰기로 한 물건이라 늦출 수 없다.
+ *
+ * 알림 빈도를 실제로 결정하는 건 이 값이다. 60초에서 900초로 늘리면
+ * 알림이 5~9배 줄어든다. 1800초까지 늘려도 추가 감소는 크지 않은 반면
+ * 별개 사건을 같은 알림으로 묶어버릴 위험은 커져서 900으로 잡았다.
  */
-export const FRAME_MERGE_WINDOW_SECONDS = 60;
+export const FRAME_MERGE_WINDOW_SECONDS = 900;
 
 /**
  * TODO(backtest): MAD가 0에 가까울 때의 하한.

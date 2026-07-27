@@ -26,7 +26,10 @@ apps/detector   Node.js + TypeScript
                 바이낸스 WebSocket 상시 연결, 급등 감지, 텔레그램 발송.
                 상시 프로세스라 서버리스 불가. Railway / Fly.io 도쿄 리전.
 
-packages/core   두 앱이 공유하는 타입 정의, 상수, 알고리즘 인터페이스.
+apps/backtest   파라미터 확정용 오프라인 도구. 배포되지 않는다.
+                바이낸스 공개 덤프를 리플레이해서 알림 빈도를 측정한다.
+
+packages/core   두 앱이 공유하는 타입 정의, 상수, 감지 알고리즘.
 
 docs            기획 문서.
 ```
@@ -66,13 +69,49 @@ pnpm dev:detector
 | 명령 | 설명 |
 |---|---|
 | `pnpm build` | 전체 워크스페이스 빌드 (의존 순서대로) |
+| `pnpm test` | 전체 테스트 |
 | `pnpm typecheck` | 전체 타입 검사 |
 | `pnpm clean` | 빌드 산출물 삭제 |
 
+## 백테스트
+
+```bash
+# 바이낸스 공개 덤프 내려받기 (6종목 × 3개월, 약 670MB)
+pnpm --filter @flare-alert/backtest fetch
+
+# 리플레이용 이진 형식으로 변환
+pnpm --filter @flare-alert/backtest prepare:data
+
+# 교차 추출 + 파라미터 스윕
+pnpm --filter @flare-alert/backtest build
+pnpm --filter @flare-alert/backtest start
+```
+
+받은 데이터와 중간 결과는 `data/`에 쌓이고 커밋되지 않는다.
+교차 추출 결과는 캐시되므로 두 번째 실행부터는 스윕만 몇 초 만에 돈다.
+
 ## 현재 상태
 
-초기 셋업 단계다. 저장소 골격, 타입 정의, 기획 문서까지 끝났다.
-**감지 로직은 아직 구현되어 있지 않다.**
+### 되어 있는 것
 
-`packages/core/src/constants.ts`의 `TODO(backtest)` 주석이 달린 값들은
-전부 임시값이다. 다음 작업은 백테스트로 이 값들을 확정하는 것이다.
+- 모노레포 골격, 타입 정의, 기획 문서
+- 감지 알고리즘의 통계 부분: 중앙값/MAD 기준선, 점수 S, 퍼센타일 추정기,
+  시간 감쇠 쿨다운 (`packages/core`, 테스트 43개)
+- 백테스트 하니스와 1차 결과
+
+### 안 되어 있는 것
+
+- 바이낸스 WebSocket 연결과 1초 버킷 집계 (`apps/detector`는 골격만)
+- 텔레그램 발송
+- 설정 UI와 알림 히스토리 (`apps/web`은 랜딩 페이지만)
+- 상태 저장소
+
+### 파라미터
+
+1차 백테스트로 병합창, 쿨다운 지속시간, 기본 민감도를 정했다.
+나머지 7개는 아직 임시값이며 `packages/core/src/constants.ts`에
+`TODO(backtest)` 주석이 달려 있다. 현황은
+[docs/algorithm.md](docs/algorithm.md#파라미터-현황) 참고.
+
+가장 시급한 것은 최소 거래대금 하한이다. 소형 종목의 결과를 사실상
+혼자 결정하고 있는데 아직 근거 없이 잡은 값이다.

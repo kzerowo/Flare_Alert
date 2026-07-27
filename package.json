@@ -9,6 +9,7 @@
   },
   "scripts": {
     "build": "pnpm -r build",
+    "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
     "clean": "pnpm -r clean",
     "dev:web": "pnpm --filter @flare-alert/core build && pnpm --filter @flare-alert/web dev",

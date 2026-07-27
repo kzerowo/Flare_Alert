@@ -1,25 +1,18 @@
 {
-  "name": "@flare-alert/core",
+  "name": "@flare-alert/backtest",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
-    }
-  },
-  "files": [
-    "dist"
-  ],
   "scripts": {
+    "fetch": "node scripts/fetch-klines.mjs",
+    "prepare:data": "node scripts/prepare.mjs",
     "build": "tsc -p tsconfig.json",
-    "dev": "tsc -p tsconfig.json --watch",
-    "test": "tsc -p tsconfig.json && node --test \"dist/**/*.test.js\"",
+    "start": "node --max-old-space-size=4096 dist/index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\""
+  },
+  "dependencies": {
+    "@flare-alert/core": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
