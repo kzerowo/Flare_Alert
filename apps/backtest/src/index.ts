@@ -8,12 +8,16 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { MIN_QUOTE_VOLUME } from "@flare-alert/core";
+import { MIN_QUOTE_VOLUME, TIMEFRAMES } from "@flare-alert/core";
 
 import { loadCrossings, saveCrossings } from "./crossings.js";
 import type { CrossingStream } from "./crossings.js";
 import { evaluate } from "./engine.js";
-import { frameRateTable, measureFrameStandards } from "./frame-standards.js";
+import {
+  frameRateTable,
+  measureFrameStandards,
+  measureSliderCurve,
+} from "./frame-standards.js";
 import { loadManifest, loadSymbol, symbolsIn } from "./data.js";
 import { extractCrossings } from "./replay.js";
 
@@ -208,6 +212,45 @@ function frameStandards(streams: readonly CrossingStream[]): void {
   }
 }
 
+/** 슬라이더 눈금 위의 프레임별 빈도 곡선. UI에 그대로 넣을 수치다. */
+function sliderCurve(streams: readonly CrossingStream[]): void {
+  const positions: number[] = [];
+  for (let p = 5; p <= 100; p += 5) {
+    positions.push(p);
+  }
+
+  console.log("");
+  console.log("═".repeat(76));
+  console.log("슬라이더 위치별 프레임 하루 알림 수 (종목 평균, 프레임 격리)");
+  console.log("");
+  console.log(
+    pad("위치", 6) +
+      padStart("백분위", 9) +
+      TIMEFRAMES.map((tf) => padStart(tf, 9)).join(""),
+  );
+
+  const rows = measureSliderCurve(streams, positions);
+  const json: Record<string, number[]> = {};
+  for (const tf of TIMEFRAMES) {
+    json[tf] = [];
+  }
+
+  for (const row of rows) {
+    console.log(
+      pad(String(row.position), 6) +
+        padStart(row.percentile.toFixed(2), 9) +
+        TIMEFRAMES.map((tf) => padStart(row.rates[tf].toFixed(2), 9)).join(""),
+    );
+    for (const tf of TIMEFRAMES) {
+      json[tf]?.push(Math.round(row.rates[tf] * 100) / 100);
+    }
+  }
+
+  console.log("");
+  console.log("상수로 넣을 형태:");
+  console.log(JSON.stringify({ positions, rates: json }));
+}
+
 async function main(): Promise<void> {
   const here = path.dirname(fileURLToPath(import.meta.url));
   const dataDir = path.resolve(here, "../../../data/prepared");
@@ -230,6 +273,7 @@ async function main(): Promise<void> {
   console.log(`2단계 · 파라미터 스윕 (${streams[0]?.measuredDays.toFixed(0)}일 측정)`);
 
   frameStandards(streams);
+  sliderCurve(streams);
 }
 
 main().catch((error: unknown) => {

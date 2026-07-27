@@ -2,6 +2,7 @@ import {
   FRAME_MERGE_WINDOW_SECONDS,
   TIMEFRAMES,
   percentileToSlider,
+  sliderToPercentile,
 } from "@flare-alert/core";
 import type { Timeframe } from "@flare-alert/core";
 
@@ -108,6 +109,28 @@ export function measureFrameStandards(
       sliderPosition: percentileToSlider(percentile),
       measuredPerDay: measured,
     };
+  });
+}
+
+/**
+ * 슬라이더 눈금 위에서 프레임별 하루 알림 수를 측정한다.
+ *
+ * UI가 "여기 두면 프레임별로 몇 번 울린다"를 보여주려면 실측 곡선이
+ * 필요하다. 말로 설명하는 것보다 숫자가 바뀌는 걸 보여주는 편이 낫다.
+ */
+export function measureSliderCurve(
+  streams: readonly CrossingStream[],
+  positions: readonly number[],
+): { position: number; percentile: number; rates: Record<Timeframe, number> }[] {
+  return positions.map((position) => {
+    const percentile = sliderToPercentile(position);
+    const rates = {} as Record<Timeframe, number>;
+
+    TIMEFRAMES.forEach((timeframe, frameIndex) => {
+      rates[timeframe] = averagePerDay(streams, frameIndex, percentile);
+    });
+
+    return { position, percentile, rates };
   });
 }
 

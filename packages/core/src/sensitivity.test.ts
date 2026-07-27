@@ -11,7 +11,8 @@ import {
 import {
   SLIDER_MAX,
   SLIDER_MIN,
-  formatTail,
+  estimateAlertsPerDay,
+  formatAlertsPerDay,
   percentileToSlider,
   sliderToPercentile,
 } from "./sensitivity.js";
@@ -83,16 +84,61 @@ describe("프레임 표준 민감도", () => {
   });
 });
 
-describe("formatTail", () => {
-  it("자릿수에 따라 표현을 바꾼다", () => {
-    assert.equal(formatTail(90), "상위 10%");
-    assert.equal(formatTail(99), "상위 1%");
-    assert.equal(formatTail(99.9), "상위 0.1%");
-    assert.equal(formatTail(99.99), "상위 0.01%");
+describe("estimateAlertsPerDay", () => {
+  it("오른쪽으로 갈수록 모든 프레임이 자주 울린다", () => {
+    for (const timeframe of TIMEFRAMES) {
+      let previous = -1;
+      for (let position = SLIDER_MIN; position <= SLIDER_MAX; position += 1) {
+        const rate = estimateAlertsPerDay(timeframe, position);
+        assert.ok(rate >= previous, `${timeframe} 위치 ${position}에서 역전`);
+        previous = rate;
+      }
+    }
   });
 
-  it("0.1%와 0.01%를 구분해서 보여준다", () => {
-    // 실제로 10배 차이라 반올림해서 같아 보이면 안 된다.
-    assert.notEqual(formatTail(99.9), formatTail(99.99));
+  it("짧은 프레임이 긴 프레임보다 자주 울린다", () => {
+    for (const position of [20, 50, 80]) {
+      assert.ok(
+        estimateAlertsPerDay("1m", position) >
+          estimateAlertsPerDay("1d", position),
+        `위치 ${position}`,
+      );
+    }
+  });
+
+  it("권장 눈금 위치에서 하루 1회 근처가 나온다", () => {
+    // 눈금의 정의 자체다. 상수와 곡선이 어긋나면 여기서 잡힌다.
+    for (const timeframe of TIMEFRAMES) {
+      const position = percentileToSlider(FRAME_STANDARD_PERCENTILE[timeframe]);
+      const rate = estimateAlertsPerDay(timeframe, position);
+      assert.ok(
+        rate > 0.6 && rate < 1.6,
+        `${timeframe} 위치 ${position} → ${rate.toFixed(2)}회`,
+      );
+    }
+  });
+
+  it("범위를 벗어난 위치도 안전하다", () => {
+    assert.ok(estimateAlertsPerDay("1m", -10) > 0);
+    assert.ok(estimateAlertsPerDay("1m", 500) > 0);
+  });
+});
+
+describe("formatAlertsPerDay", () => {
+  it("빈도에 따라 표현을 바꾼다", () => {
+    assert.equal(formatAlertsPerDay(0.05), "거의 안 울림");
+    assert.equal(formatAlertsPerDay(0.5), "2일에 1회");
+    assert.equal(formatAlertsPerDay(2.5), "하루 2.5회");
+    assert.equal(formatAlertsPerDay(19), "하루 19회");
+  });
+
+  it("하루 1회 근처를 '1일에 1회'로 바꾸지 않는다", () => {
+    // 0.9회를 "1일에 1회"로 쓰면 오히려 어색하다.
+    assert.equal(formatAlertsPerDay(0.9), "하루 0.9회");
+  });
+
+  it("하루 1회 미만은 며칠에 한 번으로 읽어준다", () => {
+    // "하루 0.3회"는 감이 안 온다.
+    assert.equal(formatAlertsPerDay(0.33), "3일에 1회");
   });
 });

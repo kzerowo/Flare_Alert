@@ -8,18 +8,29 @@ import {
   SLIDER_MAX,
   SLIDER_MIN,
   TIMEFRAMES,
-  formatTail,
+  estimateAlertsPerDay,
+  formatAlertsPerDay,
   percentileToSlider,
-  sliderToPercentile,
 } from "@flare-alert/core";
 import type { Timeframe } from "@flare-alert/core";
 
+const FRAME_LABEL: Record<Timeframe, string> = {
+  "1m": "1분봉",
+  "5m": "5분봉",
+  "15m": "15분봉",
+  "1h": "1시간봉",
+  "4h": "4시간봉",
+  "1d": "1일봉",
+};
+
 /**
- * 프레임별 표준 민감도 눈금.
+ * 프레임별 권장 위치 눈금.
  *
- * 백테스트 실측값이다. "그 프레임 하나만 켰을 때 하루 1회쯤 울리는 지점".
- * 슬라이더 위치가 겹치는 프레임이 있어서 (4h 76, 1d 77) 라벨을 그대로
- * 겹쳐 놓으면 읽을 수 없다. 아래에서 묶어서 처리한다.
+ * "그 봉을 주로 볼 때 슬라이더를 어디 두면 되는가"다. 그 봉의 성격이
+ * 아니라 설정 안내다. 1분봉이 왼쪽인 이유는 원래 자주 터지는 봉이라
+ * 조용하게 만들려면 임계를 높여야 하기 때문이다.
+ *
+ * 4h(76)와 1d(77)처럼 붙어 있는 눈금은 라벨이 겹쳐 못 읽으므로 합친다.
  */
 interface Marker {
   position: number;
@@ -39,13 +50,12 @@ function buildMarkers(): Marker[] {
     }
   }
 
-  // 라벨이 겹쳐 읽히지 않는 것을 막는다. 2 이하로 붙은 눈금은 하나로 합친다.
   const sorted = [...byPosition.entries()].sort((a, b) => a[0] - b[0]);
   const merged: Marker[] = [];
 
   for (const [position, timeframes] of sorted) {
     const previous = merged[merged.length - 1];
-    if (previous !== undefined && position - previous.position <= 2) {
+    if (previous !== undefined && position - previous.position <= 3) {
       previous.timeframes.push(...timeframes);
       continue;
     }
@@ -55,7 +65,6 @@ function buildMarkers(): Marker[] {
   return merged;
 }
 
-/** 슬라이더 위치를 트랙 위의 퍼센트로. */
 function toTrackPercent(position: number): number {
   return ((position - SLIDER_MIN) / (SLIDER_MAX - SLIDER_MIN)) * 100;
 }
@@ -66,38 +75,30 @@ export function SensitivitySlider() {
     percentileToSlider(SENSITIVITY_DEFAULT),
   );
 
-  const percentile = sliderToPercentile(position);
+  const rates = useMemo(
+    () =>
+      TIMEFRAMES.map((timeframe) => ({
+        timeframe,
+        perDay: estimateAlertsPerDay(timeframe, position),
+      })),
+    [position],
+  );
 
-  // 지금 위치가 어느 프레임의 표준에 가장 가까운지.
-  const nearest = useMemo(() => {
-    let best = markers[0];
-    if (best === undefined) {
-      return null;
-    }
-    for (const marker of markers) {
-      if (
-        Math.abs(marker.position - position) <
-        Math.abs(best.position - position)
-      ) {
-        best = marker;
-      }
-    }
-    return best;
-  }, [markers, position]);
+  const maxRate = Math.max(...rates.map((r) => r.perDay), 0.01);
 
   return (
     <div className="w-full max-w-xl">
-      <div className="mb-2 flex items-baseline justify-between">
+      <div className="mb-1 flex items-baseline justify-between">
         <label htmlFor="sensitivity" className="text-sm font-medium">
           민감도
         </label>
-        <span className="text-sm tabular-nums text-flare-muted">
-          {position} · {formatTail(percentile)}
+        <span className="text-lg font-semibold tabular-nums text-flare-accent">
+          {position}%
         </span>
       </div>
 
-      {/* 눈금 라벨. 트랙 위쪽에 절대 위치로 얹는다. */}
-      <div className="relative h-10">
+      {/* 권장 위치 눈금 */}
+      <div className="relative h-9">
         {markers.map((marker) => (
           <div
             key={marker.position}
@@ -128,22 +129,42 @@ export function SensitivitySlider() {
         <span>자주</span>
       </div>
 
-      <p className="mt-4 text-sm text-flare-muted">
-        {nearest === null ? null : (
-          <>
-            지금 위치는 <b className="text-flare-accent">
-              {nearest.timeframes.join(", ")}
-            </b>{" "}
-            기준 표준에 가깝습니다. 그 프레임만 켜면 종목당 하루 1회쯤
-            울립니다.
-          </>
-        )}
+      <p className="mt-3 text-xs text-flare-muted">
+        위 눈금은 그 봉을 주로 볼 때 권장하는 위치입니다.
       </p>
 
-      <p className="mt-2 text-xs leading-relaxed text-flare-muted/70">
-        눈금은 백테스트 실측값입니다 (바이낸스 6종목, 2026년 4~6월). 프레임마다
-        울리는 빈도가 크게 달라서, 같은 민감도에서 1분봉은 1일봉보다 30배쯤 자주
-        울립니다. 여러 프레임을 함께 켜면 짧은 쪽이 알림 대부분을 차지합니다.
+      {/* 지금 위치에서 프레임별로 얼마나 울리는지 */}
+      <div className="mt-6 rounded-lg border border-flare-muted/20 p-4">
+        <h3 className="text-sm font-medium">이 설정에서 예상되는 알림</h3>
+        <p className="mt-1 text-xs text-flare-muted">
+          코인 1개 기준. 봉을 여러 개 켜면 합쳐집니다.
+        </p>
+
+        <ul className="mt-3 space-y-2">
+          {rates.map(({ timeframe, perDay }) => (
+            <li key={timeframe} className="flex items-center gap-3 text-sm">
+              <span className="w-16 shrink-0 text-flare-muted">
+                {FRAME_LABEL[timeframe]}
+              </span>
+
+              <span className="h-1.5 w-32 shrink-0 overflow-hidden rounded-full bg-flare-muted/15">
+                <span
+                  className="block h-full rounded-full bg-flare-accent"
+                  style={{ width: `${(perDay / maxRate) * 100}%` }}
+                />
+              </span>
+
+              <span className="tabular-nums text-flare-muted">
+                {formatAlertsPerDay(perDay)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <p className="mt-3 text-xs leading-relaxed text-flare-muted/70">
+        바이낸스 6종목 백테스트(2026년 4~6월) 실측 평균입니다. 대형 종목일수록
+        더 자주, 소형일수록 덜 울립니다.
       </p>
     </div>
   );

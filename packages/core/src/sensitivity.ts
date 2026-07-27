@@ -1,5 +1,10 @@
-import { SENSITIVITY_MAX, SENSITIVITY_MIN } from "./constants.js";
-import type { Sensitivity } from "./types.js";
+import {
+  FRAME_RATE_CURVE,
+  FRAME_RATE_CURVE_POSITIONS,
+  SENSITIVITY_MAX,
+  SENSITIVITY_MIN,
+} from "./constants.js";
+import type { Sensitivity, Timeframe } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // 슬라이더 위치와 백분위 임계의 변환
@@ -56,19 +61,58 @@ export function percentileToSlider(percentile: Sensitivity): number {
 }
 
 /**
- * 사용자에게 보여줄 꼬리 비율 문구.
- * 0.1%와 0.01%는 실제로 10배 차이인데 반올림하면 같아 보인다.
+ * 슬라이더 위치에서 그 프레임이 하루 몇 번 울릴지 추정한다.
+ *
+ * 백테스트 실측 곡선을 선형 보간한다. 6종목 평균이라 정확한 예측이
+ * 아니다. 사용자가 슬라이더를 옮길 때 "이쯤이면 몇 번" 감을 잡는 용도다.
  */
-export function formatTail(percentile: Sensitivity): string {
-  // 100 - 99.9는 0.09999...로 나온다. 그대로 비교하면 0.1이 0.1 미만으로
-  // 판정돼 자릿수 분기가 어긋난다.
-  const tail = Math.round((100 - percentile) * 10_000) / 10_000;
+export function estimateAlertsPerDay(
+  timeframe: Timeframe,
+  sliderPosition: number,
+): number {
+  const curve = FRAME_RATE_CURVE[timeframe];
+  const positions = FRAME_RATE_CURVE_POSITIONS;
 
-  if (tail >= 1) {
-    return `상위 ${Math.round(tail)}%`;
+  const clamped = clamp(sliderPosition, SLIDER_MIN, SLIDER_MAX);
+
+  const first = positions[0] ?? 0;
+  if (clamped <= first) {
+    return curve[0] ?? 0;
   }
-  if (tail >= 0.1) {
-    return `상위 ${tail.toFixed(1)}%`;
+
+  for (let i = 1; i < positions.length; i += 1) {
+    const right = positions[i];
+    const left = positions[i - 1];
+    if (right === undefined || left === undefined) {
+      break;
+    }
+
+    if (clamped <= right) {
+      const weight = (clamped - left) / (right - left);
+      const lowValue = curve[i - 1] ?? 0;
+      const highValue = curve[i] ?? 0;
+      return lowValue + (highValue - lowValue) * weight;
+    }
   }
-  return `상위 ${tail.toFixed(2)}%`;
+
+  return curve[curve.length - 1] ?? 0;
+}
+
+/** 하루 알림 수를 사람이 읽을 문구로. */
+export function formatAlertsPerDay(perDay: number): string {
+  if (perDay < 0.15) {
+    return "거의 안 울림";
+  }
+  // 하루 0.3회는 "사흘에 한 번"이 더 잘 읽힌다.
+  // 다만 0.9회를 "1일에 1회"로 바꾸면 오히려 어색하므로 2일 이상만.
+  if (perDay < 0.67) {
+    return `${Math.round(1 / perDay)}일에 1회`;
+  }
+  if (perDay < 10) {
+    return `하루 ${perDay.toFixed(1)}회`;
+  }
+  if (perDay < 10) {
+    return `하루 ${perDay.toFixed(1)}회`;
+  }
+  return `하루 ${Math.round(perDay)}회`;
 }

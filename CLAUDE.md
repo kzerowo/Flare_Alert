@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-_Last updated: 2026-07-27 22:40_
+_Last updated: 2026-07-27 23:25_
 
 ## Project Overview
 
@@ -91,7 +91,7 @@ A `Channel` = coins + one sensitivity + timeframes + delivery methods. Users hav
 ### Sensitivity Model
 
 - Meaning: "alert on the top (100 − sensitivity)% of observations"
-- **Not an integer.** The useful range is compressed into 99–100, so the UI must handle decimals. Default is `99.9` (≈4–6 alerts/day on majors).
+- **Not an integer.** The useful range is compressed into 99–100, so the UI must handle decimals. Default is `99.9` (≈0.9–1.1 alerts/day on a single 1m frame).
 - `SENSITIVITY_MIN` 90, `SENSITIVITY_MAX` 99.99
 
 **Slider conversion** (`packages/core/src/sensitivity.ts`):
@@ -99,7 +99,10 @@ A `Channel` = coins + one sensitivity + timeframes + delivery methods. Users hav
 - Internal representation remains percentile; conversion happens only in this module
 - Logarithmic axis: tail fraction ranges 0.01%–10% across three orders of magnitude, so linear division would collapse one end
 - Default 99.9 maps to slider position 34
-- Exports: `sliderToPercentile()`, `percentileToSlider()`, `formatTail()`, `SLIDER_MIN`, `SLIDER_MAX`
+- **Alert frequency display** — instead of percentile text, the UI now shows estimated alerts per day using:
+  - `estimateAlertsPerDay(timeframe, sliderPosition)` — interpolates `FRAME_RATE_CURVE` to estimate alerts/day per frame
+  - `formatAlertsPerDay(perDay)` — formats as "하루 1.1회" / "3일에 1회" / "거의 안 울림" etc.
+- Exports: `sliderToPercentile()`, `percentileToSlider()`, `estimateAlertsPerDay()`, `formatAlertsPerDay()`, `SLIDER_MIN`, `SLIDER_MAX`
 
 ### Delivery
 
@@ -122,8 +125,11 @@ Confirmed by the first backtest (2026-07-27):
 | `SENSITIVITY_DEFAULT` | 99.9 | Maps to slider position 34 |
 | `FRAME_STANDARD_PERCENTILE` | per-frame constants | "One-frame-only" alert rate = 1/day, measured via binary search on isolated frames |
 
-**Frame Standards** (`packages/core/src/constants.ts`):
-Frame alert frequencies diverge dramatically at the same sensitivity. A single sensitivity cannot satisfy all frames simultaneously — 1-minute candles fire ~30x more often than 1-day candles. To guide users, backtest measured the percentile threshold that yields ~1 alert/day per symbol when *only that frame is active*:
+**Frame Standards & Estimated Alert Frequency** (`packages/core/src/constants.ts`):
+
+Frame alert frequencies diverge dramatically at the same sensitivity. A single sensitivity cannot satisfy all frames simultaneously — 1-minute candles fire ~30x more often than 1-day candles. Backtest measured two things per frame:
+
+1. **Frame Standard Percentile** — the percentile that yields ~1 alert/day when *only that frame is active*:
 
 | Frame | Percentile | Slider Position | 
 |---|---|---|
@@ -134,7 +140,9 @@ Frame alert frequencies diverge dramatically at the same sensitivity. A single s
 | 4h | 98.14 | 76 |
 | 1d | 98.02 | 77 |
 
-These are reference marks only; enabling multiple frames simultaneously will not produce 1 alert/day on each. Used by the web UI (`SensitivitySlider`) to display frame-specific tick marks; labels merge if positions differ by ≤2.
+2. **Frame Rate Curve** (`FRAME_RATE_CURVE`) — alert frequency at each slider position (5–100 in 5-step increments), per-frame. Measured via frame isolation on 6 symbols (BTC, ETH, SOL, ANKR, ONE, SHIB) from 2026-04-01 to 2026-06-30. Used by the web UI (`SensitivitySlider`) to display frame-specific tick marks and estimated alert frequency at the current slider position.
+
+Labels merge if tick positions differ by ≤3. The curve values are interpolated linearly by `estimateAlertsPerDay(timeframe, sliderPosition)` when rendering the slider preview.
 
 Still carrying `TODO(backtest)` in `constants.ts`: `LOOKBACK_WINDOW_COUNT`, `MIN_ELAPSED_SECONDS`, `MIN_QUOTE_VOLUME`, `COOLDOWN_DECAY_CURVE`, `COOLDOWN_TAIL_TIGHTENING`, `PERCENTILE_HISTORY_DAYS`, `MIN_PERCENTILE_SAMPLES`, `MAD_FLOOR_RATIO`.
 
@@ -213,10 +221,11 @@ Not yet covered: the detector pipeline (unimplemented), frame merging (lives in 
 4. **Frame merging is not in core** — currently only in the backtest engine (`apps/backtest/src/engine.ts`).
 5. **Storage schema** — user config, alert history, percentile distribution persistence.
 6. **Web UI — Channel creation** (`/channels/new`):
-   - Skeleton in place with `SensitivitySlider` component showing frame standards as visual tick marks
+   - `SensitivitySlider` ✅ complete — shows frame standards as tick marks + real-time estimated alerts/day per frame
    - TODO: coin selection, frame selection, delivery method (browser/Telegram), save
 7. **Backtest tools**:
-   - `apps/backtest/src/frame-standards.ts`: Binary search to measure frame-specific alert rates, feeding `FRAME_STANDARD_PERCENTILE`
+   - `apps/backtest/src/frame-standards.ts`: Binary search to measure frame-specific alert rates (✅ `FRAME_STANDARD_PERCENTILE`), now also `measureSliderCurve()` to sample full positions
    - `engine.ts` extended with `onlyFrame` parameter to isolate individual frames during measurement
+   - ✅ Frame rate curve data (`FRAME_RATE_CURVE`) published in constants — used for slider preview
 8. **Frame imbalance** — 1m produces ~80% of large-cap alerts while 1d produces ~50% of small-cap alerts. Whether frames need separate alert budgets is undecided.
 9. **Multi-frame calibration** — supporting per-frame overrides (TimeframeOverrides) so users can dial in each frame independently despite frame-to-frame frequency disparity.
