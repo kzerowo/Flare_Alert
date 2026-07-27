@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 
 import {
-  FRAME_STANDARD_PERCENTILE,
+  FRAME_SCALE_PERCENTILE,
   SENSITIVITY_DEFAULT,
   SLIDER_MAX,
   SLIDER_MIN,
@@ -24,13 +24,14 @@ const FRAME_LABEL: Record<Timeframe, string> = {
 };
 
 /**
- * 프레임별 권장 위치 눈금.
+ * 사건 규모 눈금.
  *
- * "그 봉을 주로 볼 때 슬라이더를 어디 두면 되는가"다. 그 봉의 성격이
- * 아니라 설정 안내다. 1분봉이 왼쪽인 이유는 원래 자주 터지는 봉이라
- * 조용하게 만들려면 임계를 높여야 하기 때문이다.
+ * 알림은 채널당 하나이고 기준은 민감도 하나뿐이다. 프레임은 판정 축이
+ * 아니라 "이 민감도가 어느 정도인지" 알려주는 참고 라벨이다.
  *
- * 4h(76)와 1d(77)처럼 붙어 있는 눈금은 라벨이 겹쳐 못 읽으므로 합친다.
+ * 1분봉급 급등은 짧게 터지고 말아 신호가 약하므로 민감도를 높여야
+ * 잡힌다(오른쪽). 1일봉급은 크고 오래 가서 신호가 강하므로 낮은
+ * 민감도로도 잡힌다(왼쪽).
  */
 interface Marker {
   position: number;
@@ -41,7 +42,7 @@ function buildMarkers(): Marker[] {
   const byPosition = new Map<number, Timeframe[]>();
 
   for (const timeframe of TIMEFRAMES) {
-    const position = percentileToSlider(FRAME_STANDARD_PERCENTILE[timeframe]);
+    const position = percentileToSlider(FRAME_SCALE_PERCENTILE[timeframe]);
     const existing = byPosition.get(position);
     if (existing === undefined) {
       byPosition.set(position, [timeframe]);
@@ -50,12 +51,13 @@ function buildMarkers(): Marker[] {
     }
   }
 
+  // 라벨이 겹쳐 못 읽는 것을 막는다. 긴 프레임끼리는 위치가 가깝다.
   const sorted = [...byPosition.entries()].sort((a, b) => a[0] - b[0]);
   const merged: Marker[] = [];
 
   for (const [position, timeframes] of sorted) {
     const previous = merged[merged.length - 1];
-    if (previous !== undefined && position - previous.position <= 3) {
+    if (previous !== undefined && position - previous.position <= 4) {
       previous.timeframes.push(...timeframes);
       continue;
     }
@@ -69,22 +71,34 @@ function toTrackPercent(position: number): number {
   return ((position - SLIDER_MIN) / (SLIDER_MAX - SLIDER_MIN)) * 100;
 }
 
+/**
+ * 지금 민감도가 잡아내는 가장 작은 규모.
+ *
+ * TIMEFRAMES는 짧은 것부터이고 눈금 위치는 그 반대로 감소한다.
+ * 그러므로 조건을 만족하는 첫 항목이 곧 가장 작은 규모다.
+ * 마지막 항목을 잡으면 언제나 1일봉이 나온다.
+ */
+function scaleAt(position: number): Timeframe | null {
+  for (const timeframe of TIMEFRAMES) {
+    const markerPosition = percentileToSlider(
+      FRAME_SCALE_PERCENTILE[timeframe],
+    );
+    if (markerPosition <= position) {
+      return timeframe;
+    }
+  }
+
+  return null;
+}
+
 export function SensitivitySlider() {
   const markers = useMemo(buildMarkers, []);
   const [position, setPosition] = useState(() =>
     percentileToSlider(SENSITIVITY_DEFAULT),
   );
 
-  const rates = useMemo(
-    () =>
-      TIMEFRAMES.map((timeframe) => ({
-        timeframe,
-        perDay: estimateAlertsPerDay(timeframe, position),
-      })),
-    [position],
-  );
-
-  const maxRate = Math.max(...rates.map((r) => r.perDay), 0.01);
+  const perDay = estimateAlertsPerDay(position);
+  const caught = scaleAt(position);
 
   return (
     <div className="w-full max-w-xl">
@@ -97,7 +111,6 @@ export function SensitivitySlider() {
         </span>
       </div>
 
-      {/* 권장 위치 눈금 */}
       <div className="relative h-9">
         {markers.map((marker) => (
           <div
@@ -129,42 +142,29 @@ export function SensitivitySlider() {
         <span>자주</span>
       </div>
 
-      <p className="mt-3 text-xs text-flare-muted">
-        위 눈금은 그 봉을 주로 볼 때 권장하는 위치입니다.
-      </p>
-
-      {/* 지금 위치에서 프레임별로 얼마나 울리는지 */}
       <div className="mt-6 rounded-lg border border-flare-muted/20 p-4">
-        <h3 className="text-sm font-medium">이 설정에서 예상되는 알림</h3>
-        <p className="mt-1 text-xs text-flare-muted">
-          코인 1개 기준. 봉을 여러 개 켜면 합쳐집니다.
+        {caught === null ? (
+          <p className="text-sm text-flare-muted">
+            가장 큰 급등에만 알림이 옵니다.
+          </p>
+        ) : (
+          <p className="text-sm">
+            <b className="text-flare-accent">{FRAME_LABEL[caught]}</b> 차트에서
+            눈에 띌 규모의 급등부터 알림이 옵니다.
+          </p>
+        )}
+
+        <p className="mt-2 text-sm text-flare-muted">
+          코인 1개당 {formatAlertsPerDay(perDay)} 정도. 채널에 코인을 여러 개
+          넣으면 그만큼 늘어납니다.
         </p>
-
-        <ul className="mt-3 space-y-2">
-          {rates.map(({ timeframe, perDay }) => (
-            <li key={timeframe} className="flex items-center gap-3 text-sm">
-              <span className="w-16 shrink-0 text-flare-muted">
-                {FRAME_LABEL[timeframe]}
-              </span>
-
-              <span className="h-1.5 w-32 shrink-0 overflow-hidden rounded-full bg-flare-muted/15">
-                <span
-                  className="block h-full rounded-full bg-flare-accent"
-                  style={{ width: `${(perDay / maxRate) * 100}%` }}
-                />
-              </span>
-
-              <span className="tabular-nums text-flare-muted">
-                {formatAlertsPerDay(perDay)}
-              </span>
-            </li>
-          ))}
-        </ul>
       </div>
 
       <p className="mt-3 text-xs leading-relaxed text-flare-muted/70">
-        바이낸스 6종목 백테스트(2026년 4~6월) 실측 평균입니다. 대형 종목일수록
-        더 자주, 소형일수록 덜 울립니다.
+        눈금은 민감도의 세기를 가늠하기 위한 참고입니다. 알림 기준은 민감도
+        하나뿐이며, 봉마다 따로 울리지 않고 채널당 하나로 나갑니다.
+        수치는 바이낸스 6종목 백테스트(2026년 4~6월) 평균이라, 대형 종목일수록
+        더 자주 울립니다.
       </p>
     </div>
   );

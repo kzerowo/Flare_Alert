@@ -229,37 +229,40 @@ export type RejectionReason =
   | "cooldown"
   /** 과거 S 분포 표본이 부족해 퍼센타일을 신뢰할 수 없음 */
   | "insufficient_history"
-  /** 다른 프레임의 같은 사건에 병합됨 */
-  | "merged_into_other_frame";
+  /** 직전 알림과 같은 사건으로 판단됨 */
+  | "same_event";
 
 /**
- * 여러 프레임에서 동시에 터진 후보를 하나로 묶은 최종 알림.
- * 겹친 프레임 수는 중복이 아니라 신호 강도로 쓴다.
+ * 최종 알림. 채널당 하나씩 나간다.
+ *
+ * 프레임별로 알림을 만들어 합치는 구조가 아니다. 판정 기준은 민감도
+ * 하나뿐이고, 프레임은 그 민감도가 어느 정도인지 알려주는 참고 라벨이다.
  */
-export interface MergedAlert {
+export interface Alert {
   id: string;
   /** 이 알림을 발생시킨 채널. 사용자에게 어느 채널인지 보여줘야 한다. */
   channelId: string;
   target: SymbolRef;
   firedAtMs: number;
-  /** 병합된 프레임들. 강도 순 정렬. */
-  frames: AlertFrameDetail[];
-  /** 대표 프레임 (보통 가장 높은 백분위를 낸 프레임) */
-  primaryTimeframe: Timeframe;
-  /** 신호 강도 = 동시에 임계를 넘은 프레임 수 */
-  strength: number;
   /** 알림 시점 가격 */
   price: number;
-}
 
-/** 병합된 알림 안의 프레임 하나에 대한 상세. */
-export interface AlertFrameDetail {
-  timeframe: Timeframe;
+  /** 판정에 쓰인 채널 신호 (백분위) */
   percentile: number;
+  /** 그 신호를 만든 점수 S */
   score: number;
+  /** 판정 시점의 창 누적 거래대금 */
   quoteVolume: number;
   /** 참고용 배수 (v / M). 판정에는 쓰지 않고 표시용으로만 쓴다. */
   ratioToMedian: number;
+
+  /**
+   * 사건의 규모. 이상치였던 가장 긴 프레임이다.
+   *
+   * "1시간봉급 급등"처럼 사용자에게 크기를 알려주는 용도다.
+   * 알림을 만드는 기준이 아니라 만들어진 알림을 설명하는 라벨이다.
+   */
+  scale: Timeframe;
 }
 
 /** 쿨다운 상태. 알림 직후 임계를 올리고 시간에 따라 원복시킨다. */
@@ -315,9 +318,14 @@ export interface AlertFilter {
   evaluate(candidate: AlertCandidate, atMs: number): RejectionReason | null;
 }
 
-/** 같은 사건에서 나온 여러 프레임 후보를 하나로 묶는다. */
-export interface FrameMerger {
-  merge(candidates: readonly AlertCandidate[], atMs: number): MergedAlert[];
+/**
+ * 후보들을 채널당 알림 하나로 만든다.
+ *
+ * 여러 프레임이 동시에 임계를 넘어도 알림은 하나다. 프레임을 세어 강도로
+ * 쓰지 않는다. 대신 가장 긴 이상치 프레임을 사건의 규모(scale)로 붙인다.
+ */
+export interface AlertBuilder {
+  build(candidates: readonly AlertCandidate[], atMs: number): Alert[];
 }
 
 /**
@@ -330,13 +338,13 @@ export interface FrameMerger {
 export interface Notifier {
   readonly method: DeliveryMethod;
   /** 대상이 유효하지 않으면(예: 세션 종료) false. 예외를 던지지 않는다. */
-  send(alert: MergedAlert, target: DeliveryTarget): Promise<boolean>;
+  send(alert: Alert, target: DeliveryTarget): Promise<boolean>;
 }
 
 /** 채널 설정에 따라 여러 수단으로 동시에 내보낸다. */
 export interface AlertDispatcher {
   dispatch(
-    alert: MergedAlert,
+    alert: Alert,
     channel: Channel,
     settings: UserSettings,
   ): Promise<DeliveryResult[]>;

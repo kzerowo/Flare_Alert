@@ -1,10 +1,10 @@
 import {
-  FRAME_RATE_CURVE,
+  CHANNEL_RATE_CURVE,
   FRAME_RATE_CURVE_POSITIONS,
   SENSITIVITY_MAX,
   SENSITIVITY_MIN,
 } from "./constants.js";
-import type { Sensitivity, Timeframe } from "./types.js";
+import type { Sensitivity } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // 슬라이더 위치와 백분위 임계의 변환
@@ -61,16 +61,14 @@ export function percentileToSlider(percentile: Sensitivity): number {
 }
 
 /**
- * 슬라이더 위치에서 그 프레임이 하루 몇 번 울릴지 추정한다.
+ * 슬라이더 위치에서 채널이 코인 1개당 하루 몇 번 울릴지 추정한다.
  *
+ * 알림은 채널당 하나이므로 프레임별로 나누지 않는다.
  * 백테스트 실측 곡선을 선형 보간한다. 6종목 평균이라 정확한 예측이
- * 아니다. 사용자가 슬라이더를 옮길 때 "이쯤이면 몇 번" 감을 잡는 용도다.
+ * 아니고, 슬라이더를 옮길 때 "이쯤이면 몇 번" 감을 잡는 용도다.
  */
-export function estimateAlertsPerDay(
-  timeframe: Timeframe,
-  sliderPosition: number,
-): number {
-  const curve = FRAME_RATE_CURVE[timeframe];
+export function estimateAlertsPerDay(sliderPosition: number): number {
+  const curve = CHANNEL_RATE_CURVE;
   const positions = FRAME_RATE_CURVE_POSITIONS;
 
   const clamped = clamp(sliderPosition, SLIDER_MIN, SLIDER_MAX);

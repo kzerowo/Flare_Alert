@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-_Last updated: 2026-07-27 23:25_
+_Last updated: 2026-07-27 23:46_
 
 ## Project Overview
 
@@ -33,8 +33,8 @@ _Last updated: 2026-07-27 23:25_
 │   │       ├── data.ts             # Load/concat prepared series
 │   │       ├── replay.ts           # Phase 1: extract threshold crossings
 │   │       ├── crossings.ts        # Crossing stream + disk cache
-│   │       ├── engine.ts           # Phase 2: cooldown/merge parameter sweep (with frame isolation)
-│   │       ├── frame-standards.ts  # Binary search for per-frame alert calibration
+│   │       ├── engine.ts           # Phase 2: sweep settings, single alert per channel
+│   │       ├── event-scale.ts      # Measure scale labels and channel rate curve
 │   │       └── index.ts            # CLI entry + report
 │   ├── detector/          # Real-time detection (continuous process)
 │   │   └── src/
@@ -48,14 +48,14 @@ _Last updated: 2026-07-27 23:25_
 │           └── SensitivitySlider.tsx  # Interactive sensitivity control with frame-standard tick marks
 ├── packages/
 │   └── core/src/
-│       ├── types.ts            # Domain types + interfaces
-│       ├── constants.ts        # Confirmed & pending-backtest parameters (includes FRAME_STANDARD_PERCENTILE)
+│       ├── types.ts            # Domain types + interfaces (Alert, AlertBuilder)
+│       ├── constants.ts        # Confirmed & pending-backtest parameters (FRAME_SCALE_PERCENTILE, CHANNEL_RATE_CURVE)
 │       ├── math.ts             # median, MAD, quantile, percentile rank
-│       ├── score.ts            # Baseline (median/MAD) + score S
+│       ├── score.ts            # Baseline (median/MAD) + anomaly score S
 │       ├── percentile.ts       # Histogram percentile estimator (Fenwick tree)
 │       ├── cooldown.ts         # Time-decay cooldown
-│       ├── sensitivity.ts      # Slider ↔ percentile conversion (log-axis, 1–100 ↔ 90–99.99)
-│       └── sensitivity.test.ts # Tests for slider/percentile round-trip and frame standards
+│       ├── sensitivity.ts      # Slider ↔ percentile conversion, single channel rate curve
+│       └── sensitivity.test.ts # Tests for slider/percentile round-trip and scale labels
 ├── docs/                  # Korean planning docs (algorithm/architecture/
 │                          #   research/decisions)
 └── data/                  # Backtest data — gitignored, ~1.2GB
@@ -68,13 +68,13 @@ _Last updated: 2026-07-27 23:25_
 ```
 Binance aggTrade WS → 1-second buckets → Per-frame rolling windows
   → Median/MAD baseline + anomaly score S → Percentile conversion
-  → Sensitivity threshold → Filters (min turnover, warmup, cooldown, frame merge)
-  → Telegram dispatch
+  → Sensitivity threshold → Filters (min turnover, warmup, cooldown)
+  → Identify scale (largest frame triggering) → Single alert per channel → Telegram dispatch
 ```
 
-The statistical middle (score, percentile, cooldown) is **implemented and tested** in `packages/core`. Ingestion (WebSocket, 1-second buckets), the turnover/warmup filters, frame merging, and dispatch are **not implemented** — `apps/detector/src/index.ts` is still a skeleton.
+The statistical middle (score, percentile, cooldown) is **implemented and tested** in `packages/core`. Ingestion (WebSocket, 1-second buckets), the turnover/warmup filters, scale detection, and dispatch are **not implemented** — `apps/detector/src/index.ts` is still a skeleton.
 
-Note: frame merging exists only inside `apps/backtest/src/engine.ts`. It must be promoted to `packages/core` when the detector is built.
+**Alert model** (2026-07-27): Alerts are **per channel**, not per frame. All six frames feed into a single percentile decision (maximum across frames). If it clears the threshold, one alert fires per channel. The scale (largest frame to trigger) is attached to the alert as metadata for labeling ("1-hour-class spike"), not as a dispatch mechanism.
 
 ### Timeframes
 
@@ -82,27 +82,45 @@ Six timeframes evaluated in lockstep: `1m`, `5m`, `15m`, `1h`, `4h`, `1d`. Windo
 
 ### Channel Model
 
-A `Channel` = coins + one sensitivity + timeframes + delivery methods. Users have many; the same coin may appear in several channels with different sensitivities.
+A `Channel` = coins + one sensitivity + delivery methods. Users have many; the same coin may appear in several channels with different sensitivities.
 
-**Critical split**: score S and percentile are *independent of channels* — they are properties of a symbol/timeframe, not of user settings. Cooldown and frame merging are *per channel* (one channel firing must not silence another watching the same coin). So the detector computes the expensive part once per symbol and applies each channel's threshold to the result. State keys are `ChannelSeriesKey`, not `SeriesKey`.
+**Critical split**: score S and percentile are *independent of channels* — they are properties of a symbol/timeframe, not of user settings. Cooldown and scale detection are *per channel* (one channel firing must not silence another watching the same coin). So the detector computes the expensive part once per symbol and applies each channel's threshold to the result. State keys are `ChannelSeriesKey`, not `SeriesKey`.
+
+**Alert output**: One alert per channel per symbol per event. The alert object contains:
+- `channelId` — which channel detected it
+- `scale` — the largest timeframe to trigger (1m–1d), used for display ("1시간봉급 급등")
+- `percentile`, `score`, `quoteVolume`, `ratioToMedian` — debugging and display
+
+No `strength` field; the alert happens or it doesn't. Frame counts are not aggregated into a "strength" metric.
 
 `apps/backtest` already has this shape (extract crossings once → sweep configs cheaply).
 
 ### Sensitivity Model
 
+**One alert per channel.** Timeframes are NOT an evaluation axis — the only firing criterion is sensitivity. Frames appear solely as reference tick marks on the slider, meaning "at this position, spikes big enough to be visible on that chart start alerting."
+
+`FRAME_SCALE_PERCENTILE` places those marks: 1m at slider 56 (rightmost), 1d at 22 (leftmost). Short bursts only disturb the 1m window → weak signal → need high sensitivity. Large sustained moves disturb every window → strong signal → caught even at low sensitivity.
+
+**A previous version had these markers reversed**, defined as "threshold where frame X alone fires ~1/day". That computes correctly but answers the wrong question. Don't reintroduce it.
+
+An `Alert` carries `scale` (the longest anomalous timeframe) as a descriptive label — "1시간봉급 급등". It describes an alert; it never creates one.
+
 - Meaning: "alert on the top (100 − sensitivity)% of observations"
-- **Not an integer.** The useful range is compressed into 99–100, so the UI must handle decimals. Default is `99.9` (≈0.9–1.1 alerts/day on a single 1m frame).
+- **Not an integer.** The useful range is compressed into 99–100, so the UI must handle decimals. Default is `99.887` (15-minute-scale rate, ≈3–4 alerts/day per coin in a channel).
 - `SENSITIVITY_MIN` 90, `SENSITIVITY_MAX` 99.99
 
 **Slider conversion** (`packages/core/src/sensitivity.ts`):
 - UI displays integer positions 1–100, where rightward motion increases alert frequency
 - Internal representation remains percentile; conversion happens only in this module
 - Logarithmic axis: tail fraction ranges 0.01%–10% across three orders of magnitude, so linear division would collapse one end
-- Default 99.9 maps to slider position 34
-- **Alert frequency display** — instead of percentile text, the UI now shows estimated alerts per day using:
-  - `estimateAlertsPerDay(timeframe, sliderPosition)` — interpolates `FRAME_RATE_CURVE` to estimate alerts/day per frame
-  - `formatAlertsPerDay(perDay)` — formats as "하루 1.1회" / "3일에 1회" / "거의 안 울림" etc.
-- Exports: `sliderToPercentile()`, `percentileToSlider()`, `estimateAlertsPerDay()`, `formatAlertsPerDay()`, `SLIDER_MIN`, `SLIDER_MAX`
+- Default 99.887 maps to slider position 36 (same as 15-minute scale)
+- **Alert frequency display** — the UI shows estimated alerts per day using:
+  - `estimateAlertsPerDay(sliderPosition)` — interpolates `CHANNEL_RATE_CURVE` to estimate alerts/day per coin
+  - Alerts are **per channel**, not split by frame; the curve represents a single channel watching one coin
+- **Scale labels** — above the slider at each marker position, showing which event size (1m–1d) that sensitivity would "naturally" catch if isolated:
+  - "1분봉급" (right side, high sensitivity): very short spikes need high thresholds to avoid false alarms
+  - "1일봉급" (left side, low sensitivity): large, long-lasting events have strong signals and trip at low thresholds
+- Exports: `sliderToPercentile()`, `percentileToSlider()`, `estimateAlertsPerDay()`, `SLIDER_MIN`, `SLIDER_MAX`
 
 ### Delivery
 
@@ -120,29 +138,34 @@ Confirmed by the first backtest (2026-07-27):
 
 | Constant | Value | Note |
 |---|---|---|
-| `FRAME_MERGE_WINDOW_SECONDS` | 900 | The only effective frequency lever (60s→1800s changes alert count 5–9x) |
-| `COOLDOWN_DURATION_SECONDS` | 3x initial guess | Weak lever — 1x→10x moves alert count only ~10% |
-| `SENSITIVITY_DEFAULT` | 99.9 | Maps to slider position 34 |
-| `FRAME_STANDARD_PERCENTILE` | per-frame constants | "One-frame-only" alert rate = 1/day, measured via binary search on isolated frames |
+| `SENSITIVITY_DEFAULT` | 99.887 | Aligned to 15-minute scale; maps to slider position 36 |
+| `FRAME_SCALE_PERCENTILE` | per-frame constants | Percentile at which that event size would "naturally" reach ~1 alert/day if isolated |
+| `CHANNEL_RATE_CURVE` | single array | Alert frequency (per coin, per channel) at each slider position |
 
-**Frame Standards & Estimated Alert Frequency** (`packages/core/src/constants.ts`):
+**Event Scale Labeling & Alert Frequency** (`packages/core/src/constants.ts`):
 
-Frame alert frequencies diverge dramatically at the same sensitivity. A single sensitivity cannot satisfy all frames simultaneously — 1-minute candles fire ~30x more often than 1-day candles. Backtest measured two things per frame:
+The backtest revealed that event size (1m spike vs. 1d spike) and event strength are independent. A sensitivity set for large events (low percentile) will catch all the small events too. So instead of per-frame alert budgets, the UI labels each slider position with the *smallest event size* it would typically catch in isolation.
 
-1. **Frame Standard Percentile** — the percentile that yields ~1 alert/day when *only that frame is active*:
+Backtest measured two things:
 
-| Frame | Percentile | Slider Position | 
-|---|---|---|
-| 1m | 99.96 | 21 |
-| 5m | 99.88 | 37 |
-| 15m | 99.71 | 49 |
-| 1h | 98.89 | 68 |
-| 4h | 98.14 | 76 |
-| 1d | 98.02 | 77 |
+1. **Frame Scale Percentile** (`FRAME_SCALE_PERCENTILE`) — the percentile at which each timeframe, isolated, crosses its own baseline at ~1 alert/day:
 
-2. **Frame Rate Curve** (`FRAME_RATE_CURVE`) — alert frequency at each slider position (5–100 in 5-step increments), per-frame. Measured via frame isolation on 6 symbols (BTC, ETH, SOL, ANKR, ONE, SHIB) from 2026-04-01 to 2026-06-30. Used by the web UI (`SensitivitySlider`) to display frame-specific tick marks and estimated alert frequency at the current slider position.
+| Frame | Percentile | Slider Position | Meaning |
+|---|---|---|---|
+| 1m | 99.541 | ~8 | Very aggressive; catches minute-scale volatility |
+| 5m | 99.807 | ~24 | Aggressive; 5-minute impulses |
+| 15m | 99.887 | ~36 | Moderate; default setting |
+| 1h | 99.938 | ~52 | Relaxed; hour-scale moves |
+| 4h | 99.952 | ~62 | Very relaxed; 4-hour trends |
+| 1d | 99.957 | ~66 | Daily close moves only |
 
-Labels merge if tick positions differ by ≤3. The curve values are interpolated linearly by `estimateAlertsPerDay(timeframe, sliderPosition)` when rendering the slider preview.
+These serve as UI tick marks. Users see "1분봉급 / 5분봉급 / 15분봉급 / 1시간봉급 / 4시간봉급 / 1일봉급" at these positions, indicating event size, not dictating frame-specific behavior.
+
+2. **Channel Rate Curve** (`CHANNEL_RATE_CURVE`) — alert frequency per coin at each slider position (5–100 in 5-step increments). Single curve because alerts are per-channel, not per-frame. Measured on 6 symbols (BTC, ETH, SOL, ANKR, ONE, SHIB) from 2026-04-01 to 2026-06-30. Used by the web UI to show estimated alert rate at the current slider position.
+
+The curve values are interpolated linearly by `estimateAlertsPerDay(sliderPosition)` when rendering the slider preview.
+
+Labels merge if tick positions differ by ≤4. The file `apps/backtest/src/event-scale.ts` (replacing `frame-standards.ts`) measures both the scale markers and the channel rate curve.
 
 Still carrying `TODO(backtest)` in `constants.ts`: `LOOKBACK_WINDOW_COUNT`, `MIN_ELAPSED_SECONDS`, `MIN_QUOTE_VOLUME`, `COOLDOWN_DECAY_CURVE`, `COOLDOWN_TAIL_TIGHTENING`, `PERCENTILE_HISTORY_DAYS`, `MIN_PERCENTILE_SAMPLES`, `MAD_FLOOR_RATIO`.
 
@@ -182,18 +205,20 @@ Crossing extraction takes ~1 minute per symbol and is cached to `data/crossings/
 
 ## Architecture Decisions
 
-See `docs/decisions.md` (Korean) for full rationale. Eleven decisions recorded, including:
+See `docs/decisions.md` (Korean) for full rationale. Twelve decisions recorded, including:
 
 1. Median/MAD instead of mean/stddev — a single spike drags a mean-based baseline up and mutes alerts for hours
 2. Percentile instead of multiplier — cross-symbol portability (frequency predictability was retracted after backtesting)
 3. aggTrade + 1s buckets instead of klines — kline streams delay detection by up to 60s
 4. Time-decay cooldown instead of "must exceed last alert" — the latter never resets after a big spike
 5. Channel-based sensitivity instead of per-symbol or account-wide — allows targeting different use cases (quiet majors vs aggressive altcoin hunting) without manual per-symbol tuning
+6. Single alert per channel (2026-07-27 update) — rather than merging alerts across multiple frames, take the maximum percentile across all six frames in parallel. If it exceeds the threshold, one alert fires. The scale (largest triggering frame) is attached for display, not used for dispatch logic.
 7. Cooldown multiplies the allowed tail fraction rather than adding to the percentile — adding overflows the 100 ceiling at high sensitivity and becomes a total mute
-8. Frame merge absorbs into an already-sent alert rather than delaying dispatch — delaying would negate the reason for using aggTrade
+8. Frame scale labels instead of per-frame alert rates — the UI shows which event size "naturally" catches at each slider position (determined by isolated binary search), but all frames feed into one alert decision
 9. Fixed-bin histogram on an asinh axis with a Fenwick tree, not full sample retention
-10. Channel model with **channel-scoped** cooldown/merge but **symbol-scoped** score/percentile — expensive computation per symbol, threshold application per channel
+10. Channel model with **channel-scoped** cooldown/scale detection but **symbol-scoped** score/percentile — expensive computation per symbol, threshold application per channel
 11. Browser notifications (Notification API while tab is open) + Telegram simultaneously per channel — covers both idle and away-from-desk cases
+12. Frames are reference labels on the sensitivity slider, not an evaluation axis — judgment uses only the maximum percentile across all six frames; scale (the largest triggering frame) is attached for display only
 
 ## Environment Variables
 
@@ -218,14 +243,10 @@ Not yet covered: the detector pipeline (unimplemented), frame merging (lives in 
 1. **Alert quality is unmeasured.** The backtest only counted how often alerts fire, never whether price actually moved afterward. Price data is already in the same dumps.
 2. **`MIN_QUOTE_VOLUME` has no evidential basis** yet dominates small-cap results.
 3. **Detector pipeline** — WebSocket, 1s aggregation, filter chain, Telegram dispatch.
-4. **Frame merging is not in core** — currently only in the backtest engine (`apps/backtest/src/engine.ts`).
-5. **Storage schema** — user config, alert history, percentile distribution persistence.
-6. **Web UI — Channel creation** (`/channels/new`):
-   - `SensitivitySlider` ✅ complete — shows frame standards as tick marks + real-time estimated alerts/day per frame
-   - TODO: coin selection, frame selection, delivery method (browser/Telegram), save
-7. **Backtest tools**:
-   - `apps/backtest/src/frame-standards.ts`: Binary search to measure frame-specific alert rates (✅ `FRAME_STANDARD_PERCENTILE`), now also `measureSliderCurve()` to sample full positions
-   - `engine.ts` extended with `onlyFrame` parameter to isolate individual frames during measurement
-   - ✅ Frame rate curve data (`FRAME_RATE_CURVE`) published in constants — used for slider preview
-8. **Frame imbalance** — 1m produces ~80% of large-cap alerts while 1d produces ~50% of small-cap alerts. Whether frames need separate alert budgets is undecided.
-9. **Multi-frame calibration** — supporting per-frame overrides (TimeframeOverrides) so users can dial in each frame independently despite frame-to-frame frequency disparity.
+4. **Storage schema** — user config, alert history, percentile distribution persistence.
+5. **Web UI — Channel creation** (`/channels/new`):
+   - `SensitivitySlider` ✅ complete — shows frame-scale reference marks + real-time estimated alerts/day
+   - TODO: coin selection, delivery method (browser/Telegram), save
+6. **Backtest tools**:
+   - ✅ `apps/backtest/src/event-scale.ts`: Measures event-scale percentiles and channel rate curve (replaces `frame-standards.ts`)
+   - ✅ `FRAME_SCALE_PERCENTILE` and `CHANNEL_RATE_CURVE` published in constants

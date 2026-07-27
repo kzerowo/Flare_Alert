@@ -13,11 +13,7 @@ import { MIN_QUOTE_VOLUME, TIMEFRAMES } from "@flare-alert/core";
 import { loadCrossings, saveCrossings } from "./crossings.js";
 import type { CrossingStream } from "./crossings.js";
 import { evaluate } from "./engine.js";
-import {
-  frameRateTable,
-  measureFrameStandards,
-  measureSliderCurve,
-} from "./frame-standards.js";
+import { measureChannelCurve, measureScaleMarkers } from "./event-scale.js";
 import { loadManifest, loadSymbol, symbolsIn } from "./data.js";
 import { extractCrossings } from "./replay.js";
 
@@ -120,100 +116,31 @@ function sweep(streams: readonly CrossingStream[]): void {
   }
 }
 
-/** 고른 설정에서 프레임별 분포와 신호 강도가 어떻게 나오는지 본다. */
-function detail(
-  streams: readonly CrossingStream[],
-  mergeWindowSeconds: number,
-  cooldownScale: number,
-): void {
+/** 사건 규모별로 필요한 민감도. 슬라이더 눈금의 근거다. */
+function scaleMarkers(streams: readonly CrossingStream[]): void {
   console.log("");
   console.log("═".repeat(76));
-  console.log(
-    `선택 설정 상세 · 병합창 ${mergeWindowSeconds}초, 쿨다운 ×${cooldownScale}`,
-  );
+  console.log("사건 규모별 필요 민감도 (규모 = 이상치였던 가장 긴 프레임)");
   console.log("");
   console.log(
-    pad("종목", 10) +
-      pad("민감도", 8) +
-      padStart("하루", 8) +
-      padStart("강도", 8) +
-      "  대표 프레임",
+    pad("규모", 10) +
+      padStart("필요 백분위", 14) +
+      padStart("슬라이더", 10) +
+      padStart("사건 수", 10),
   );
 
-  for (const stream of streams) {
-    for (const sensitivity of SENSITIVITIES) {
-      const result = evaluate(stream, {
-        sensitivity,
-        mergeWindowSeconds,
-        cooldownScale,
-        tightening: TIGHTENING,
-      });
-
-      const frames = Object.entries(result.byPrimaryFrame)
-        .filter(([, count]) => count > 0)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 3)
-        .map(([tf, count]) => {
-          const share = (count / Math.max(result.alerts, 1)) * 100;
-          return `${tf} ${share.toFixed(0)}%`;
-        })
-        .join(", ");
-
-      console.log(
-        pad(stream.symbol.replace("USDT", ""), 10) +
-          pad(String(sensitivity), 8) +
-          padStart(result.alertsPerDay.toFixed(1), 8) +
-          padStart(result.averageStrength.toFixed(1), 8) +
-          `  ${frames}`,
-      );
-    }
+  for (const marker of measureScaleMarkers(streams)) {
+    console.log(
+      pad(marker.timeframe, 10) +
+        padStart(marker.percentile.toFixed(3), 14) +
+        padStart(String(marker.sliderPosition), 10) +
+        padStart(marker.eventCount.toLocaleString(), 10),
+    );
   }
 }
 
-/** 프레임별 격리 측정. 슬라이더에 놓을 표준 눈금의 근거다. */
-function frameStandards(streams: readonly CrossingStream[]): void {
-  const probes = [90, 95, 99, 99.5, 99.9, 99.99];
-
-  console.log("");
-  console.log("═".repeat(76));
-  console.log("프레임 격리 측정 · 프레임 하나만 켰을 때 하루 알림 수 (종목 평균)");
-  console.log("");
-  console.log(
-    pad("프레임", 10) + probes.map((p) => padStart(String(p), 10)).join(""),
-  );
-
-  const table = frameRateTable(streams, probes);
-  for (const [timeframe, rates] of table) {
-    console.log(
-      pad(timeframe, 10) +
-        rates.map((r) => padStart(r.toFixed(2), 10)).join(""),
-    );
-  }
-
-  for (const target of [1, 3]) {
-    console.log("");
-    console.log(`── 하루 ${target}회를 목표로 한 프레임별 표준 민감도`);
-    console.log("");
-    console.log(
-      pad("프레임", 10) +
-        padStart("백분위", 10) +
-        padStart("슬라이더", 10) +
-        padStart("실측/일", 10),
-    );
-
-    for (const standard of measureFrameStandards(streams, target)) {
-      console.log(
-        pad(standard.timeframe, 10) +
-          padStart(standard.percentile.toFixed(2), 10) +
-          padStart(String(standard.sliderPosition), 10) +
-          padStart(standard.measuredPerDay.toFixed(2), 10),
-      );
-    }
-  }
-}
-
-/** 슬라이더 눈금 위의 프레임별 빈도 곡선. UI에 그대로 넣을 수치다. */
-function sliderCurve(streams: readonly CrossingStream[]): void {
+/** 슬라이더 위치별 채널 알림 수. 알림은 채널당 하나다. */
+function channelCurve(streams: readonly CrossingStream[]): void {
   const positions: number[] = [];
   for (let p = 5; p <= 100; p += 5) {
     positions.push(p);
@@ -221,34 +148,24 @@ function sliderCurve(streams: readonly CrossingStream[]): void {
 
   console.log("");
   console.log("═".repeat(76));
-  console.log("슬라이더 위치별 프레임 하루 알림 수 (종목 평균, 프레임 격리)");
+  console.log("슬라이더 위치별 채널 하루 알림 수 (코인 1개 기준, 종목 평균)");
   console.log("");
-  console.log(
-    pad("위치", 6) +
-      padStart("백분위", 9) +
-      TIMEFRAMES.map((tf) => padStart(tf, 9)).join(""),
-  );
+  console.log(pad("위치", 8) + padStart("백분위", 10) + padStart("하루", 10));
 
-  const rows = measureSliderCurve(streams, positions);
-  const json: Record<string, number[]> = {};
-  for (const tf of TIMEFRAMES) {
-    json[tf] = [];
-  }
-
+  const rows = measureChannelCurve(streams, positions);
   for (const row of rows) {
     console.log(
-      pad(String(row.position), 6) +
-        padStart(row.percentile.toFixed(2), 9) +
-        TIMEFRAMES.map((tf) => padStart(row.rates[tf].toFixed(2), 9)).join(""),
+      pad(String(row.position), 8) +
+        padStart(row.percentile.toFixed(2), 10) +
+        padStart(row.perDay.toFixed(2), 10),
     );
-    for (const tf of TIMEFRAMES) {
-      json[tf]?.push(Math.round(row.rates[tf] * 100) / 100);
-    }
   }
 
   console.log("");
   console.log("상수로 넣을 형태:");
-  console.log(JSON.stringify({ positions, rates: json }));
+  console.log(
+    JSON.stringify(rows.map((r) => Math.round(r.perDay * 100) / 100)),
+  );
 }
 
 async function main(): Promise<void> {
@@ -272,8 +189,9 @@ async function main(): Promise<void> {
   console.log("");
   console.log(`2단계 · 파라미터 스윕 (${streams[0]?.measuredDays.toFixed(0)}일 측정)`);
 
-  frameStandards(streams);
-  sliderCurve(streams);
+  sweep(streams);
+  scaleMarkers(streams);
+  channelCurve(streams);
 }
 
 main().catch((error: unknown) => {
