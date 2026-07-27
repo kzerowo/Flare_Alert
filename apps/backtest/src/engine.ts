@@ -16,6 +16,12 @@ export interface EngineConfig {
   cooldownScale: number;
   /** 알림 직후 허용 꼬리 비율을 조이는 배수. */
   tightening: number;
+  /**
+   * 지정하면 이 프레임의 교차만 본다.
+   * 프레임별 표준 민감도를 재는 데 쓴다. 채널은 여러 프레임을 함께 켜지만,
+   * "1분봉 기준으로는 어느 민감도가 적당한가"를 알려면 프레임을 격리해야 한다.
+   */
+  onlyFrame?: number;
 }
 
 export interface EngineResult {
@@ -121,6 +127,12 @@ export function evaluate(
     let bestFrame = -1;
 
     for (let j = i; j < end; j += 1) {
+      const frameIndex = stream.frames[j] ?? 0;
+
+      if (config.onlyFrame !== undefined && frameIndex !== config.onlyFrame) {
+        continue;
+      }
+
       const percentile = stream.percentiles[j] ?? 0;
       if (percentile < config.sensitivity) {
         continue;
@@ -128,7 +140,6 @@ export function evaluate(
 
       rawCrossings += 1;
 
-      const frameIndex = stream.frames[j] ?? 0;
       const key = keys[frameIndex];
       if (key === undefined) {
         continue;

@@ -13,6 +13,7 @@ import { MIN_QUOTE_VOLUME } from "@flare-alert/core";
 import { loadCrossings, saveCrossings } from "./crossings.js";
 import type { CrossingStream } from "./crossings.js";
 import { evaluate } from "./engine.js";
+import { frameRateTable, measureFrameStandards } from "./frame-standards.js";
 import { loadManifest, loadSymbol, symbolsIn } from "./data.js";
 import { extractCrossings } from "./replay.js";
 
@@ -165,6 +166,48 @@ function detail(
   }
 }
 
+/** 프레임별 격리 측정. 슬라이더에 놓을 표준 눈금의 근거다. */
+function frameStandards(streams: readonly CrossingStream[]): void {
+  const probes = [90, 95, 99, 99.5, 99.9, 99.99];
+
+  console.log("");
+  console.log("═".repeat(76));
+  console.log("프레임 격리 측정 · 프레임 하나만 켰을 때 하루 알림 수 (종목 평균)");
+  console.log("");
+  console.log(
+    pad("프레임", 10) + probes.map((p) => padStart(String(p), 10)).join(""),
+  );
+
+  const table = frameRateTable(streams, probes);
+  for (const [timeframe, rates] of table) {
+    console.log(
+      pad(timeframe, 10) +
+        rates.map((r) => padStart(r.toFixed(2), 10)).join(""),
+    );
+  }
+
+  for (const target of [1, 3]) {
+    console.log("");
+    console.log(`── 하루 ${target}회를 목표로 한 프레임별 표준 민감도`);
+    console.log("");
+    console.log(
+      pad("프레임", 10) +
+        padStart("백분위", 10) +
+        padStart("슬라이더", 10) +
+        padStart("실측/일", 10),
+    );
+
+    for (const standard of measureFrameStandards(streams, target)) {
+      console.log(
+        pad(standard.timeframe, 10) +
+          padStart(standard.percentile.toFixed(2), 10) +
+          padStart(String(standard.sliderPosition), 10) +
+          padStart(standard.measuredPerDay.toFixed(2), 10),
+      );
+    }
+  }
+}
+
 async function main(): Promise<void> {
   const here = path.dirname(fileURLToPath(import.meta.url));
   const dataDir = path.resolve(here, "../../../data/prepared");
@@ -186,9 +229,7 @@ async function main(): Promise<void> {
   console.log("");
   console.log(`2단계 · 파라미터 스윕 (${streams[0]?.measuredDays.toFixed(0)}일 측정)`);
 
-  sweep(streams);
-  detail(streams, 900, 3);
-  detail(streams, 1800, 3);
+  frameStandards(streams);
 }
 
 main().catch((error: unknown) => {

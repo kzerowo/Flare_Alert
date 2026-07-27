@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-_Last updated: 2026-07-27 21:52_
+_Last updated: 2026-07-27 22:40_
 
 ## Project Overview
 
@@ -30,25 +30,32 @@ _Last updated: 2026-07-27 21:52_
 │   │   │   ├── prepare.mjs       # CSV → compact binary
 │   │   │   └── lib/zip.mjs       # Minimal ZIP reader (no deps)
 │   │   └── src/
-│   │       ├── data.ts       # Load/concat prepared series
-│   │       ├── replay.ts     # Phase 1: extract threshold crossings
-│   │       ├── crossings.ts  # Crossing stream + disk cache
-│   │       ├── engine.ts     # Phase 2: cooldown/merge parameter sweep
-│   │       └── index.ts      # CLI entry + report
+│   │       ├── data.ts             # Load/concat prepared series
+│   │       ├── replay.ts           # Phase 1: extract threshold crossings
+│   │       ├── crossings.ts        # Crossing stream + disk cache
+│   │       ├── engine.ts           # Phase 2: cooldown/merge parameter sweep (with frame isolation)
+│   │       ├── frame-standards.ts  # Binary search for per-frame alert calibration
+│   │       └── index.ts            # CLI entry + report
 │   ├── detector/          # Real-time detection (continuous process)
 │   │   └── src/
 │   │       ├── index.ts   # Entry point — pipeline is still TODO
 │   │       └── config.ts  # Env var loading and validation
 │   └── web/               # Dashboard & settings UI
-│       └── src/app/       # Next.js App Router (landing page only)
+│       ├── src/app/
+│       │   ├── page.tsx            # Landing page (links to /channels/new)
+│       │   └── channels/new/       # New channel creation screen
+│       └── src/components/
+│           └── SensitivitySlider.tsx  # Interactive sensitivity control with frame-standard tick marks
 ├── packages/
 │   └── core/src/
-│       ├── types.ts       # Domain types + interfaces
-│       ├── constants.ts   # Confirmed & pending-backtest parameters
-│       ├── math.ts        # median, MAD, quantile, percentile rank
-│       ├── score.ts       # Baseline (median/MAD) + score S
-│       ├── percentile.ts  # Histogram percentile estimator (Fenwick tree)
-│       └── cooldown.ts    # Time-decay cooldown
+│       ├── types.ts            # Domain types + interfaces
+│       ├── constants.ts        # Confirmed & pending-backtest parameters (includes FRAME_STANDARD_PERCENTILE)
+│       ├── math.ts             # median, MAD, quantile, percentile rank
+│       ├── score.ts            # Baseline (median/MAD) + score S
+│       ├── percentile.ts       # Histogram percentile estimator (Fenwick tree)
+│       ├── cooldown.ts         # Time-decay cooldown
+│       ├── sensitivity.ts      # Slider ↔ percentile conversion (log-axis, 1–100 ↔ 90–99.99)
+│       └── sensitivity.test.ts # Tests for slider/percentile round-trip and frame standards
 ├── docs/                  # Korean planning docs (algorithm/architecture/
 │                          #   research/decisions)
 └── data/                  # Backtest data — gitignored, ~1.2GB
@@ -87,6 +94,13 @@ A `Channel` = coins + one sensitivity + timeframes + delivery methods. Users hav
 - **Not an integer.** The useful range is compressed into 99–100, so the UI must handle decimals. Default is `99.9` (≈4–6 alerts/day on majors).
 - `SENSITIVITY_MIN` 90, `SENSITIVITY_MAX` 99.99
 
+**Slider conversion** (`packages/core/src/sensitivity.ts`):
+- UI displays integer positions 1–100, where rightward motion increases alert frequency
+- Internal representation remains percentile; conversion happens only in this module
+- Logarithmic axis: tail fraction ranges 0.01%–10% across three orders of magnitude, so linear division would collapse one end
+- Default 99.9 maps to slider position 34
+- Exports: `sliderToPercentile()`, `percentileToSlider()`, `formatTail()`, `SLIDER_MIN`, `SLIDER_MAX`
+
 ### Delivery
 
 Per channel, any combination of `browser` and `telegram`.
@@ -105,7 +119,22 @@ Confirmed by the first backtest (2026-07-27):
 |---|---|---|
 | `FRAME_MERGE_WINDOW_SECONDS` | 900 | The only effective frequency lever (60s→1800s changes alert count 5–9x) |
 | `COOLDOWN_DURATION_SECONDS` | 3x initial guess | Weak lever — 1x→10x moves alert count only ~10% |
-| `SENSITIVITY_DEFAULT` | 99.9 | |
+| `SENSITIVITY_DEFAULT` | 99.9 | Maps to slider position 34 |
+| `FRAME_STANDARD_PERCENTILE` | per-frame constants | "One-frame-only" alert rate = 1/day, measured via binary search on isolated frames |
+
+**Frame Standards** (`packages/core/src/constants.ts`):
+Frame alert frequencies diverge dramatically at the same sensitivity. A single sensitivity cannot satisfy all frames simultaneously — 1-minute candles fire ~30x more often than 1-day candles. To guide users, backtest measured the percentile threshold that yields ~1 alert/day per symbol when *only that frame is active*:
+
+| Frame | Percentile | Slider Position | 
+|---|---|---|
+| 1m | 99.96 | 21 |
+| 5m | 99.88 | 37 |
+| 15m | 99.71 | 49 |
+| 1h | 98.89 | 68 |
+| 4h | 98.14 | 76 |
+| 1d | 98.02 | 77 |
+
+These are reference marks only; enabling multiple frames simultaneously will not produce 1 alert/day on each. Used by the web UI (`SensitivitySlider`) to display frame-specific tick marks; labels merge if positions differ by ≤2.
 
 Still carrying `TODO(backtest)` in `constants.ts`: `LOOKBACK_WINDOW_COUNT`, `MIN_ELAPSED_SECONDS`, `MIN_QUOTE_VOLUME`, `COOLDOWN_DECAY_CURVE`, `COOLDOWN_TAIL_TIGHTENING`, `PERCENTILE_HISTORY_DAYS`, `MIN_PERCENTILE_SAMPLES`, `MAD_FLOOR_RATIO`.
 
@@ -181,7 +210,13 @@ Not yet covered: the detector pipeline (unimplemented), frame merging (lives in 
 1. **Alert quality is unmeasured.** The backtest only counted how often alerts fire, never whether price actually moved afterward. Price data is already in the same dumps.
 2. **`MIN_QUOTE_VOLUME` has no evidential basis** yet dominates small-cap results.
 3. **Detector pipeline** — WebSocket, 1s aggregation, filter chain, Telegram dispatch.
-4. **Frame merging is not in core** — currently only in the backtest engine.
+4. **Frame merging is not in core** — currently only in the backtest engine (`apps/backtest/src/engine.ts`).
 5. **Storage schema** — user config, alert history, percentile distribution persistence.
-6. **Web UI** — settings and alert history are still a placeholder landing page.
-7. **Frame imbalance** — 1m produces ~80% of large-cap alerts while 1d produces ~50% of small-cap alerts. Whether frames need separate alert budgets is undecided.
+6. **Web UI — Channel creation** (`/channels/new`):
+   - Skeleton in place with `SensitivitySlider` component showing frame standards as visual tick marks
+   - TODO: coin selection, frame selection, delivery method (browser/Telegram), save
+7. **Backtest tools**:
+   - `apps/backtest/src/frame-standards.ts`: Binary search to measure frame-specific alert rates, feeding `FRAME_STANDARD_PERCENTILE`
+   - `engine.ts` extended with `onlyFrame` parameter to isolate individual frames during measurement
+8. **Frame imbalance** — 1m produces ~80% of large-cap alerts while 1d produces ~50% of small-cap alerts. Whether frames need separate alert budgets is undecided.
+9. **Multi-frame calibration** — supporting per-frame overrides (TimeframeOverrides) so users can dial in each frame independently despite frame-to-frame frequency disparity.

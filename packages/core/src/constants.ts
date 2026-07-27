@@ -35,6 +35,29 @@ export const SENSITIVITY_MIN = 90;
 export const SENSITIVITY_MAX = 99.99;
 export const SENSITIVITY_DEFAULT = 99.9;
 
+/**
+ * 프레임별 표준 민감도. 1차 백테스트 실측 (2026-07-27).
+ *
+ * "그 프레임 하나만 켰을 때 하루 1회쯤 울리는 백분위"다.
+ * 6종목 평균이며, 프레임을 격리해 이분 탐색으로 찾았다.
+ *
+ * 슬라이더에 눈금으로 표시한다. 프레임마다 울리는 빈도가 크게 달라서
+ * (같은 민감도에서 1분봉이 1일봉의 30배쯤 울린다) 안내가 없으면
+ * 사용자가 슬라이더를 어디에 둬야 할지 알 수 없다.
+ *
+ * 주의: 한 채널에서 여러 프레임을 함께 켜면 이 값들이 동시에 만족되지
+ * 않는다. 1일봉 눈금에 맞추면 1분봉은 하루 20회 가까이 울린다.
+ * 프레임별 예외값(TimeframeOverrides)이 필요한 이유가 여기 있다.
+ */
+export const FRAME_STANDARD_PERCENTILE: Record<Timeframe, number> = {
+  "1m": 99.96,
+  "5m": 99.88,
+  "15m": 99.71,
+  "1h": 98.89,
+  "4h": 98.14,
+  "1d": 98.02,
+};
+
 /** 견적 통화. 거래대금 하한을 비교할 때 단위를 맞추는 데 쓴다. */
 export const QUOTE_CURRENCY: Record<Exchange, string> = {
   binance: "USDT",

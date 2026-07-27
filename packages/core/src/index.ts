@@ -9,3 +9,4 @@ export * from "./math.js";
 export * from "./score.js";
 export * from "./percentile.js";
 export * from "./cooldown.js";
+export * from "./sensitivity.js";
