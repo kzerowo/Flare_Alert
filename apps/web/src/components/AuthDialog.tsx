@@ -61,7 +61,7 @@ export function AuthDialog({ mode, onClose }: Props) {
           onSubmit={(event) => event.preventDefault()}
         >
           <div className="space-y-1">
-            <label htmlFor="auth-email" className="label block px-1">
+            <label htmlFor="auth-email" className="label block px-1 text-on-surface-variant">
               이메일
             </label>
             <div className="group relative">
@@ -79,7 +79,7 @@ export function AuthDialog({ mode, onClose }: Props) {
           </div>
 
           <div className="space-y-1">
-            <label htmlFor="auth-password" className="label block px-1">
+            <label htmlFor="auth-password" className="label block px-1 text-on-surface-variant">
               비밀번호
             </label>
             <div className="group relative">

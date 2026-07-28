@@ -87,7 +87,7 @@ export function ChannelCard({ channel, onEdit, onRemove, onToggle }: Props) {
       <div className="grid flex-grow grid-cols-1 gap-4 p-4 md:grid-cols-2">
         <div className="space-y-4">
           <div>
-            <p className="label mb-1">감시 코인</p>
+            <p className="label mb-1 text-on-surface-variant">감시 코인</p>
             {channel.symbols.length === 0 ? (
               <p className="text-body-sm text-outline">없음</p>
             ) : (
@@ -115,13 +115,13 @@ export function ChannelCard({ channel, onEdit, onRemove, onToggle }: Props) {
 
           <div className="flex justify-between">
             <div>
-              <p className="label">민감도</p>
+              <p className="label text-on-surface-variant">민감도</p>
               <p className="font-mono text-headline text-primary">
                 {position}%
               </p>
             </div>
             <div className="text-right">
-              <p className="label">하루 알림</p>
+              <p className="label text-on-surface-variant">하루 알림</p>
               <p className="font-mono text-headline">
                 {perDay < 1 ? perDay.toFixed(1) : Math.round(perDay)}
               </p>
@@ -131,7 +131,7 @@ export function ChannelCard({ channel, onEdit, onRemove, onToggle }: Props) {
 
         <div className="space-y-4 border-t border-white/5 pt-4 md:border-l md:border-t-0 md:pl-4 md:pt-0">
           <div>
-            <p className="label mb-1">잡는 규모</p>
+            <p className="label mb-1 text-on-surface-variant">잡는 규모</p>
             <p className="text-body-sm">
               {scale === null
                 ? "가장 큰 급등만"
@@ -140,7 +140,7 @@ export function ChannelCard({ channel, onEdit, onRemove, onToggle }: Props) {
           </div>
 
           <div>
-            <p className="label mb-1">알림 방법</p>
+            <p className="label mb-1 text-on-surface-variant">알림 방법</p>
             <div className="flex flex-wrap gap-1">
               {channel.delivery.map((method) => (
                 <span

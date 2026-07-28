@@ -114,7 +114,7 @@ export function ChannelForm({ initial, signedIn, onSave, onCancel }: Props) {
       <div className="space-y-12 p-6">
         {/* 이름 */}
         <section className="space-y-2">
-          <label htmlFor="channel-name" className="label block">
+          <label htmlFor="channel-name" className="label block text-on-surface-variant">
             채널 이름
           </label>
           <input
@@ -133,7 +133,7 @@ export function ChannelForm({ initial, signedIn, onSave, onCancel }: Props) {
         {/* 코인 */}
         <section className="space-y-4">
           <div className="flex items-end justify-between">
-            <span className="label">감시 코인</span>
+            <span className="label text-on-surface-variant">감시 코인</span>
             <span className="font-mono text-data text-primary">
               {draft.symbols.length}개 선택
             </span>
@@ -196,7 +196,7 @@ export function ChannelForm({ initial, signedIn, onSave, onCancel }: Props) {
 
         {/* 전달 수단 */}
         <section className="space-y-4">
-          <span className="label block">알림 방법</span>
+          <span className="label block text-on-surface-variant">알림 방법</span>
 
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <label className="flex cursor-pointer items-center gap-4 rounded-lg border border-white/10 bg-surface p-4 transition-all hover:border-primary/50">
@@ -230,7 +230,7 @@ export function ChannelForm({ initial, signedIn, onSave, onCancel }: Props) {
                 <span className="flex items-center gap-1">
                   <span className="text-body">텔레그램</span>
                   {signedIn ? null : (
-                    <span className="label rounded bg-white/10 px-1 py-[1px] text-[10px]">
+                    <span className="label rounded bg-white/10 px-1 py-[1px] text-[10px] text-on-surface-variant">
                       로그인 필요
                     </span>
                   )}

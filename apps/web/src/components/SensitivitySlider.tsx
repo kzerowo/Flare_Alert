@@ -103,7 +103,7 @@ export function SensitivitySlider({ value, onChange, symbolCount = 1 }: Props) {
   return (
     <section className="space-y-4">
       <div className="flex items-end justify-between">
-        <label htmlFor="sensitivity" className="label">
+        <label htmlFor="sensitivity" className="label text-on-surface-variant">
           민감도
         </label>
         <span className="font-mono text-headline text-primary">
@@ -153,8 +153,8 @@ export function SensitivitySlider({ value, onChange, symbolCount = 1 }: Props) {
         />
 
         <div className="mt-2 flex justify-between">
-          <span className="label">조용히</span>
-          <span className="label">자주</span>
+          <span className="label text-on-surface-variant">조용히</span>
+          <span className="label text-on-surface-variant">자주</span>
         </div>
       </div>
 

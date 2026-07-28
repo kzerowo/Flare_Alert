@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-_Last updated: 2026-07-29 02:05_
+_Last updated: 2026-07-29 02:32_
 
 ## Project Overview
 
@@ -24,10 +24,20 @@ _Last updated: 2026-07-29 02:05_
 
 **Design tokens** (`apps/web/src/app/globals.css` @theme):
 - **Colors** (Material 3 semantics): 6-layer backgrounds (sunken → surface → surface-low → card → surface-high → surface-highest); primary (#8ed5ff) for text/icons on dark backgrounds; primary-container (#38bdf8) for filled button backgrounds; state colors (danger, warm); outline shades for borders and dividers
+  - **Button text on primary-container**: Raised contrast from #004965 (4.6:1) to #002030 (7.8:1) to meet legibility needs for 12px uppercase labels (2026-07-29)
 - **Spacing**: 5 scales (4px, 8px, 16px, 24px, 48px) in multiples of 4; **no named --spacing-* tokens** — conflicts with Tailwind v4's `max-w-*`, `w-*`, `h-*` resolution order. Use numeric scale directly: `xs=1`, `sm=2`, `md=4`, `lg=6`, `xl=12` (Tailwind default units).
 - **Typography**: 7 text styles (display, headline, title, body, body-sm, data, label) with paired line-height and letter-spacing
 - **Corners**: lg 0.5rem, xl 0.75rem
 - **Fonts**: Inter (variable) via `next/font` for UI text; JetBrains Mono (variable) for numerics (sensitivity, alert counts) to prevent layout shift when values change
+
+**Label styling** (`.label` CSS component, 2026-07-29 refactor):
+- Moved from global scope into `@layer components` to respect Tailwind v4 layer ordering (components layer > utilities layer)
+- No longer defines color — allows `text-*` utility classes to apply when needed (previously conflicted)
+- Used on 14+ label elements throughout UI with explicit `text-on-surface-variant` where gray is expected
+  - `AuthDialog` (2 form labels)
+  - `ChannelCard` (5 section headers)
+  - `ChannelForm` (4 labels)
+  - `SensitivitySlider` (3 labels)
 
 **Icons** (`apps/web/src/components/Icon.tsx`):
 - 14 inline SVG icons (plus, edit, trash, close, search, info, activity, chart, globe, send, mail, lock, arrow-right, bell)

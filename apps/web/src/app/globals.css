@@ -29,7 +29,12 @@
    */
   --color-primary: #8ed5ff;
   --color-primary-container: #38bdf8;
-  --color-on-primary-container: #004965;
+  /*
+   * 채워진 버튼 위의 글자.
+   * 시안 값(#004965)은 #38bdf8 배경에서 대비가 4.6:1로 아슬아슬했다.
+   * 버튼 글자가 12px 대문자라 그 정도로는 읽기 힘들다. 7.8:1로 낮췄다.
+   */
+  --color-on-primary-container: #002030;
 
   /* --- 글자 --- */
   --color-on-surface: #dee3e8;
@@ -106,14 +111,24 @@ body {
 /*
  * 라벨은 언제나 대문자다. 한국어에는 대소문자가 없어 영향이 없고,
  * 영문 라벨(BTC, ETH)만 정렬된다.
+ *
+ * 두 가지를 지킨다.
+ *
+ * 1. color를 넣지 않는다. 라벨은 회색으로도, 하늘색으로도, 버튼 위
+ *    어두운 색으로도 쓰인다. 여기서 색을 정하면 text-* 유틸리티와
+ *    싸우게 된다.
+ * 2. @layer components 안에 둔다. 레이어 밖에 두면 레이어에 속한
+ *    Tailwind 유틸리티보다 우선순위가 높아져서, text-*를 같이 써도
+ *    이 규칙이 이겨버린다.
  */
-.label {
-  font-size: var(--text-label);
-  line-height: var(--text-label--line-height);
-  letter-spacing: var(--text-label--letter-spacing);
-  font-weight: var(--text-label--font-weight);
-  text-transform: uppercase;
-  color: var(--color-on-surface-variant);
+@layer components {
+  .label {
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    letter-spacing: var(--text-label--letter-spacing);
+    font-weight: var(--text-label--font-weight);
+    text-transform: uppercase;
+  }
 }
 
 /* 카드와 패널. 배경을 살짝 비치게 두고 흰 테두리를 아주 옅게 얹는다. */
