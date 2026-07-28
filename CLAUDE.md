@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-_Last updated: 2026-07-28 01:34_
+_Last updated: 2026-07-28 19:47_
 
 ## Project Overview
 
@@ -42,10 +42,14 @@ _Last updated: 2026-07-28 01:34_
 │   │       └── config.ts  # Env var loading and validation
 │   └── web/               # Dashboard & settings UI
 │       ├── src/app/
-│       │   ├── page.tsx            # Landing page (links to /channels/new)
-│       │   └── channels/new/       # New channel creation screen
+│       │   └── page.tsx            # Main app: channel list + creation + auth modal
 │       └── src/components/
-│           └── SensitivitySlider.tsx  # Interactive sensitivity control with frame-standard tick marks
+│           ├── MainApp.tsx                # App root with guest/member modes + guest state in sessionStorage
+│           ├── ChannelCard.tsx            # Display channel with edit/delete/toggle actions
+│           ├── ChannelForm.tsx            # Create/edit channel UI with coin selection + sensitivity slider
+│           ├── AuthDialog.tsx             # Login/signup modal (screen only, not functional yet)
+│           ├── SensitivitySlider.tsx      # Interactive sensitivity control with frame-standard tick marks
+│           └── lib/                       # UI utilities
 ├── packages/
 │   └── core/src/
 │       ├── types.ts            # Domain types + interfaces (Alert, AlertBuilder)
@@ -258,9 +262,13 @@ Not yet covered: the detector pipeline (unimplemented), frame merging (lives in 
 2. **`MIN_QUOTE_VOLUME` has no evidential basis** yet dominates small-cap results.
 3. **Detector pipeline** — WebSocket, 1s aggregation, filter chain, Telegram dispatch.
 4. **Storage schema** — user config, alert history, percentile distribution persistence.
-5. **Web UI — Channel creation** (`/channels/new`):
-   - `SensitivitySlider` ✅ complete — shows frame-scale reference marks + real-time estimated alerts/day
-   - TODO: coin selection, delivery method (browser/Telegram), save
+5. **Web UI — Main page** (merged landing + channel creation):
+   - ✅ `MainApp` — guest/member mode split, guest state persisted in sessionStorage (tab-scoped)
+   - ✅ `ChannelCard` — edit/delete/toggle channel actions
+   - ✅ `ChannelForm` — create/edit UI with coin selection + `SensitivitySlider`
+   - ✅ `AuthDialog` — login/signup modal (screen only, awaiting storage schema)
+   - ✅ Browser notification permission request (shown when channel list non-empty)
+   - TODO: Connect to storage backend (channel-store.tsx will sync form data to server once storage is decided)
 6. **Backtest tools**:
    - ✅ `apps/backtest/src/event-scale.ts`: Measures event-scale percentiles and channel rate curve (replaces `frame-standards.ts`)
    - ✅ `FRAME_SCALE_PERCENTILE` and `CHANNEL_RATE_CURVE` published in constants

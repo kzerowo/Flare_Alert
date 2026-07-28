@@ -1,16 +1,16 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 
 import {
   FRAME_SCALE_PERCENTILE,
-  SENSITIVITY_DEFAULT,
   SLIDER_MAX,
   SLIDER_MIN,
   TIMEFRAMES,
   estimateAlertsPerDay,
   formatAlertsPerDay,
   percentileToSlider,
+  sliderToPercentile,
 } from "@flare-alert/core";
 import type { Timeframe } from "@flare-alert/core";
 
@@ -91,13 +91,20 @@ function scaleAt(position: number): Timeframe | null {
   return null;
 }
 
-export function SensitivitySlider() {
-  const markers = useMemo(buildMarkers, []);
-  const [position, setPosition] = useState(() =>
-    percentileToSlider(SENSITIVITY_DEFAULT),
-  );
+interface Props {
+  /** 백분위 임계. 슬라이더 위치가 아니라 저장되는 값 그대로다. */
+  value: number;
+  onChange: (percentile: number) => void;
+  /** 채널에 담긴 코인 수. 예상 알림 수를 곱해서 보여준다. */
+  symbolCount?: number;
+}
 
-  const perDay = estimateAlertsPerDay(position);
+export function SensitivitySlider({ value, onChange, symbolCount = 1 }: Props) {
+  const markers = useMemo(buildMarkers, []);
+  const position = percentileToSlider(value);
+
+  const perCoin = estimateAlertsPerDay(position);
+  const perDay = perCoin * Math.max(symbolCount, 1);
   const caught = scaleAt(position);
 
   return (
@@ -133,7 +140,9 @@ export function SensitivitySlider() {
         max={SLIDER_MAX}
         step={1}
         value={position}
-        onChange={(event) => setPosition(Number(event.target.value))}
+        onChange={(event) =>
+          onChange(sliderToPercentile(Number(event.target.value)))
+        }
         className="w-full accent-flare-accent"
       />
 
@@ -154,10 +163,17 @@ export function SensitivitySlider() {
           </p>
         )}
 
-        <p className="mt-2 text-sm text-flare-muted">
-          코인 1개당 {formatAlertsPerDay(perDay)} 정도. 채널에 코인을 여러 개
-          넣으면 그만큼 늘어납니다.
-        </p>
+        {symbolCount > 1 ? (
+          <p className="mt-2 text-sm text-flare-muted">
+            코인 {symbolCount}개 합쳐 {formatAlertsPerDay(perDay)} 정도
+            (개당 {formatAlertsPerDay(perCoin)}).
+          </p>
+        ) : (
+          <p className="mt-2 text-sm text-flare-muted">
+            코인 1개당 {formatAlertsPerDay(perCoin)} 정도. 코인을 여러 개 넣으면
+            그만큼 늘어납니다.
+          </p>
+        )}
       </div>
 
       <p className="mt-3 text-xs leading-relaxed text-flare-muted/70">
