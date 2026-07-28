@@ -3,7 +3,13 @@
 @theme {
   --color-flare-bg: #0b0d12;
   --color-flare-surface: #141821;
-  --color-flare-accent: #ff7a29;
+
+  /*
+   * 강조색. 배경(#0b0d12) 대비 약 9:1이라 글자로 써도 읽히고,
+   * 이 색을 배경으로 깔고 #0b0d12 글자를 얹어도 같은 대비가 나온다.
+   * 버튼이 두 방향으로 다 쓰이므로 양쪽이 모두 성립해야 한다.
+   */
+  --color-flare-accent: #38bdf8;
   --color-flare-muted: #8b93a7;
 }
 
