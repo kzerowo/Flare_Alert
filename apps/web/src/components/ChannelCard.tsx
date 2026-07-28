@@ -71,8 +71,8 @@ export function ChannelCard({ channel, onEdit, onRemove, onToggle }: Props) {
       }`}
     >
       {/* 머리 */}
-      <div className="flex items-center justify-between bg-white/5 p-md">
-        <div className="flex min-w-0 items-center gap-sm">
+      <div className="flex items-center justify-between bg-white/5 p-4">
+        <div className="flex min-w-0 items-center gap-2">
           <span
             className={channel.enabled ? "text-primary" : "text-outline"}
             aria-hidden="true"
@@ -84,20 +84,20 @@ export function ChannelCard({ channel, onEdit, onRemove, onToggle }: Props) {
       </div>
 
       {/* 몸통 */}
-      <div className="grid flex-grow grid-cols-1 gap-md p-md md:grid-cols-2">
-        <div className="space-y-md">
+      <div className="grid flex-grow grid-cols-1 gap-4 p-4 md:grid-cols-2">
+        <div className="space-y-4">
           <div>
-            <p className="label mb-xs">감시 코인</p>
+            <p className="label mb-1">감시 코인</p>
             {channel.symbols.length === 0 ? (
               <p className="text-body-sm text-outline">없음</p>
             ) : (
-              <div className="flex flex-wrap gap-xs">
+              <div className="flex flex-wrap gap-1">
                 {channel.symbols.map((ref) => {
                   const name = displaySymbol(ref.symbol);
                   return (
                     <span
                       key={ref.symbol}
-                      className="flex items-center gap-xs rounded border border-white/10 bg-surface-highest px-sm py-1"
+                      className="flex items-center gap-1 rounded border border-white/10 bg-surface-highest px-2 py-1"
                     >
                       <span
                         className="h-3 w-3 rounded-full"
@@ -129,9 +129,9 @@ export function ChannelCard({ channel, onEdit, onRemove, onToggle }: Props) {
           </div>
         </div>
 
-        <div className="space-y-md border-t border-white/5 pt-md md:border-l md:border-t-0 md:pl-md md:pt-0">
+        <div className="space-y-4 border-t border-white/5 pt-4 md:border-l md:border-t-0 md:pl-4 md:pt-0">
           <div>
-            <p className="label mb-xs">잡는 규모</p>
+            <p className="label mb-1">잡는 규모</p>
             <p className="text-body-sm">
               {scale === null
                 ? "가장 큰 급등만"
@@ -140,12 +140,12 @@ export function ChannelCard({ channel, onEdit, onRemove, onToggle }: Props) {
           </div>
 
           <div>
-            <p className="label mb-xs">알림 방법</p>
-            <div className="flex flex-wrap gap-xs">
+            <p className="label mb-1">알림 방법</p>
+            <div className="flex flex-wrap gap-1">
               {channel.delivery.map((method) => (
                 <span
                   key={method}
-                  className="label inline-flex items-center gap-xs rounded border border-primary/20 bg-primary/10 px-sm py-xs text-primary"
+                  className="label inline-flex items-center gap-1 rounded border border-primary/20 bg-primary/10 px-2 py-1 text-primary"
                 >
                   <Icon name={method === "browser" ? "globe" : "send"} size={14} />
                   {method === "browser" ? "브라우저" : "텔레그램"}
@@ -157,12 +157,12 @@ export function ChannelCard({ channel, onEdit, onRemove, onToggle }: Props) {
       </div>
 
       {/* 발 */}
-      <div className="flex items-center justify-between border-t border-white/5 bg-white/[0.02] p-md">
-        <div className="flex gap-md">
+      <div className="flex items-center justify-between border-t border-white/5 bg-white/[0.02] p-4">
+        <div className="flex gap-4">
           <button
             type="button"
             onClick={onEdit}
-            className="flex items-center gap-xs text-body-sm text-on-surface-variant transition-colors hover:text-primary"
+            className="flex items-center gap-1 text-body-sm text-on-surface-variant transition-colors hover:text-primary"
           >
             <Icon name="edit" size={16} />
             편집
@@ -170,14 +170,14 @@ export function ChannelCard({ channel, onEdit, onRemove, onToggle }: Props) {
           <button
             type="button"
             onClick={onRemove}
-            className="flex items-center gap-xs text-body-sm text-on-surface-variant transition-colors hover:text-danger"
+            className="flex items-center gap-1 text-body-sm text-on-surface-variant transition-colors hover:text-danger"
           >
             <Icon name="trash" size={16} />
             삭제
           </button>
         </div>
 
-        <div className="flex items-center gap-md">
+        <div className="flex items-center gap-4">
           <span
             className={`label ${channel.enabled ? "text-primary" : "text-outline"}`}
           >

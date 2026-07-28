@@ -102,18 +102,18 @@ export function ChannelForm({ initial, signedIn, onSave, onCancel }: Props) {
 
   return (
     <div className="panel overflow-hidden rounded-xl">
-      <div className="border-b border-white/5 p-lg">
+      <div className="border-b border-white/5 p-6">
         <h2 className="text-display">
           {initial === undefined ? "채널 만들기" : "채널 편집"}
         </h2>
-        <p className="mt-xs text-body-sm text-on-surface-variant">
+        <p className="mt-1 text-body-sm text-on-surface-variant">
           감시할 코인을 묶고 민감도를 정하세요.
         </p>
       </div>
 
-      <div className="space-y-xl p-lg">
+      <div className="space-y-12 p-6">
         {/* 이름 */}
-        <section className="space-y-sm">
+        <section className="space-y-2">
           <label htmlFor="channel-name" className="label block">
             채널 이름
           </label>
@@ -126,12 +126,12 @@ export function ChannelForm({ initial, signedIn, onSave, onCancel }: Props) {
               setDraft((previous) => ({ ...previous, name: event.target.value }))
             }
             placeholder="예: 메이저 단타"
-            className="w-full rounded-lg border border-white/10 bg-surface px-md py-md text-body transition-all placeholder:text-outline-variant focus:border-primary focus:outline-none"
+            className="w-full rounded-lg border border-white/10 bg-surface px-4 py-4 text-body transition-all placeholder:text-outline-variant focus:border-primary focus:outline-none"
           />
         </section>
 
         {/* 코인 */}
-        <section className="space-y-md">
+        <section className="space-y-4">
           <div className="flex items-end justify-between">
             <span className="label">감시 코인</span>
             <span className="font-mono text-data text-primary">
@@ -140,7 +140,7 @@ export function ChannelForm({ initial, signedIn, onSave, onCancel }: Props) {
           </div>
 
           <div className="relative">
-            <span className="absolute left-md top-1/2 -translate-y-1/2 text-on-surface-variant">
+            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant">
               <Icon name="search" size={18} />
             </span>
             <input
@@ -148,11 +148,11 @@ export function ChannelForm({ initial, signedIn, onSave, onCancel }: Props) {
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder="코인 검색 (BTC, ETH, SOL...)"
-              className="w-full rounded-lg border border-white/10 bg-surface py-md pl-xl pr-md text-body transition-all placeholder:text-outline-variant focus:border-primary focus:outline-none"
+              className="w-full rounded-lg border border-white/10 bg-surface py-4 pl-12 pr-4 text-body transition-all placeholder:text-outline-variant focus:border-primary focus:outline-none"
             />
           </div>
 
-          <div className="flex max-h-56 flex-wrap gap-sm overflow-y-auto">
+          <div className="flex max-h-56 flex-wrap gap-2 overflow-y-auto">
             {matches.length === 0 ? (
               <p className="text-body-sm text-outline">검색 결과가 없습니다.</p>
             ) : (
@@ -164,7 +164,7 @@ export function ChannelForm({ initial, signedIn, onSave, onCancel }: Props) {
                     key={symbol}
                     type="button"
                     onClick={() => toggleSymbol(symbol)}
-                    className={`flex items-center gap-xs rounded-full px-md py-sm transition-all ${
+                    className={`flex items-center gap-1 rounded-full px-4 py-2 transition-all ${
                       on
                         ? "border-2 border-primary bg-card"
                         : "border border-white/10 bg-surface hover:border-primary/50"
@@ -195,11 +195,11 @@ export function ChannelForm({ initial, signedIn, onSave, onCancel }: Props) {
         />
 
         {/* 전달 수단 */}
-        <section className="space-y-md">
+        <section className="space-y-4">
           <span className="label block">알림 방법</span>
 
-          <div className="grid grid-cols-1 gap-md md:grid-cols-2">
-            <label className="flex cursor-pointer items-center gap-md rounded-lg border border-white/10 bg-surface p-md transition-all hover:border-primary/50">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <label className="flex cursor-pointer items-center gap-4 rounded-lg border border-white/10 bg-surface p-4 transition-all hover:border-primary/50">
               <input
                 type="checkbox"
                 checked={draft.delivery.includes("browser")}
@@ -215,7 +215,7 @@ export function ChannelForm({ initial, signedIn, onSave, onCancel }: Props) {
             </label>
 
             <label
-              className={`flex items-center gap-md rounded-lg border border-white/5 bg-surface p-md ${
+              className={`flex items-center gap-4 rounded-lg border border-white/5 bg-surface p-4 ${
                 signedIn ? "cursor-pointer hover:border-primary/50" : "cursor-not-allowed opacity-40"
               }`}
             >
@@ -227,10 +227,10 @@ export function ChannelForm({ initial, signedIn, onSave, onCancel }: Props) {
                 className="h-5 w-5 accent-primary-container"
               />
               <span className="flex flex-col">
-                <span className="flex items-center gap-xs">
+                <span className="flex items-center gap-1">
                   <span className="text-body">텔레그램</span>
                   {signedIn ? null : (
-                    <span className="label rounded bg-white/10 px-xs py-[1px] text-[10px]">
+                    <span className="label rounded bg-white/10 px-1 py-[1px] text-[10px]">
                       로그인 필요
                     </span>
                   )}
@@ -244,7 +244,7 @@ export function ChannelForm({ initial, signedIn, onSave, onCancel }: Props) {
         </section>
 
         {showProblems && problems.length > 0 ? (
-          <ul className="space-y-1 rounded-lg border border-danger/30 bg-danger/5 p-md text-body-sm text-danger">
+          <ul className="space-y-1 rounded-lg border border-danger/30 bg-danger/5 p-4 text-body-sm text-danger">
             {problems.map((problem) => (
               <li key={problem}>· {CHANNEL_PROBLEM_MESSAGE[problem]}</li>
             ))}
@@ -253,18 +253,18 @@ export function ChannelForm({ initial, signedIn, onSave, onCancel }: Props) {
       </div>
 
       {/* 동작 */}
-      <div className="flex items-center justify-end gap-md bg-white/5 p-lg">
+      <div className="flex items-center justify-end gap-4 bg-white/5 p-6">
         <button
           type="button"
           onClick={onCancel}
-          className="label px-xl py-md text-on-surface-variant transition-colors hover:text-on-surface"
+          className="label px-12 py-4 text-on-surface-variant transition-colors hover:text-on-surface"
         >
           취소
         </button>
         <button
           type="button"
           onClick={submit}
-          className="rounded-lg bg-primary-container px-xl py-md font-bold text-on-primary-container transition-all hover:shadow-[0_0_20px_rgba(56,189,248,0.4)] active:scale-95"
+          className="rounded-lg bg-primary-container px-12 py-4 font-bold text-on-primary-container transition-all hover:shadow-[0_0_20px_rgba(56,189,248,0.4)] active:scale-95"
         >
           {initial === undefined ? "채널 만들기" : "저장"}
         </button>

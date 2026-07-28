@@ -101,7 +101,7 @@ export function SensitivitySlider({ value, onChange, symbolCount = 1 }: Props) {
   const caught = scaleAt(position);
 
   return (
-    <section className="space-y-md">
+    <section className="space-y-4">
       <div className="flex items-end justify-between">
         <label htmlFor="sensitivity" className="label">
           민감도
@@ -111,7 +111,7 @@ export function SensitivitySlider({ value, onChange, symbolCount = 1 }: Props) {
         </span>
       </div>
 
-      <div className="px-sm">
+      <div className="px-2">
         {/* 규모 눈금. 간격이 고르지 않은 것이 정상이다. */}
         <div className="relative h-8">
           {markers.map((marker) => {
@@ -152,18 +152,18 @@ export function SensitivitySlider({ value, onChange, symbolCount = 1 }: Props) {
           className="w-full"
         />
 
-        <div className="mt-sm flex justify-between">
+        <div className="mt-2 flex justify-between">
           <span className="label">조용히</span>
           <span className="label">자주</span>
         </div>
       </div>
 
       {/* 요약 */}
-      <div className="flex items-start gap-md rounded-xl border border-primary/20 bg-primary/5 p-md">
+      <div className="flex items-start gap-4 rounded-xl border border-primary/20 bg-primary/5 p-4">
         <span className="mt-0.5 shrink-0 text-primary">
           <Icon name="chart" size={20} />
         </span>
-        <div className="space-y-xs">
+        <div className="space-y-1">
           <h4 className="text-title text-primary">이 설정이면</h4>
           {caught === null ? (
             <p className="text-body-sm">가장 큰 급등에만 알림이 옵니다.</p>

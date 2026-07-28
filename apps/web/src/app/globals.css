@@ -42,13 +42,17 @@
   /* 보조 강조. 꺼진 채널이나 주의 표시에 쓴다. */
   --color-warm: #ffb690;
 
-  /* --- 간격 --- */
-  /* 4의 배수로만 움직인다. xl만 48로 크게 띄어 섹션을 가른다. */
-  --spacing-xs: 4px;
-  --spacing-sm: 8px;
-  --spacing-md: 16px;
-  --spacing-lg: 24px;
-  --spacing-xl: 48px;
+  /*
+   * --- 간격 ---
+   *
+   * 이름 붙인 --spacing-md 같은 토큰을 두지 않는다.
+   * Tailwind v4의 max-w-*, w-*, h-* 는 --container-* 보다 --spacing-* 를
+   * 먼저 찾기 때문에, --spacing-md를 정의하면 max-w-md가 28rem이 아니라
+   * 16px가 되어버린다. 실제로 카드 폭이 16px로 찌그러졌었다.
+   *
+   * 시안의 간격(4/8/16/24/48px)은 마침 기본 숫자 스케일과 일치한다.
+   * xs=1, sm=2, md=4, lg=6, xl=12 으로 읽으면 된다.
+   */
 
   /* --- 모서리 --- */
   --radius-lg: 0.5rem;
