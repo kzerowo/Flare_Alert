@@ -12,6 +12,7 @@
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
     "clean": "pnpm -r clean",
+    "dev": "pnpm dev:web",
     "dev:web": "pnpm --filter @flare-alert/core build && pnpm --filter @flare-alert/web dev",
     "dev:detector": "pnpm --filter @flare-alert/core build && pnpm --filter @flare-alert/detector dev"
   },
