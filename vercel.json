@@ -1,7 +1,0 @@
-{
-  "$schema": "https://openapi.vercel.sh/vercel.json",
-  "framework": "nextjs",
-  "installCommand": "pnpm install --frozen-lockfile",
-  "buildCommand": "pnpm --filter @flare-alert/core build && pnpm --filter @flare-alert/web build",
-  "outputDirectory": "apps/web/.next"
-}

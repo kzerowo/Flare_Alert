@@ -82,19 +82,29 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGci...
 ### 2.1 연결
 
 1. <https://vercel.com/new> 에서 `kzerowo/Flare_Alert` 가져오기
-2. **Root Directory는 바꾸지 않는다** (저장소 루트 그대로)
-3. 나머지 빌드 설정도 건드리지 않는다 — 루트의 `vercel.json`이 이미 정하고 있다
+2. **Root Directory를 `apps/web`으로 설정한다.** Next.js 프레임워크 자동 감지가
+   `package.json`의 `next` 의존성을 Root Directory 안에서 찾기 때문에, 루트로
+   두면 "No Next.js version detected" 오류가 난다.
+3. Root Directory를 바꾸면 **"Include files outside of the Root Directory in
+   the Build Step"** 옵션이 나온다. 반드시 켠다 — 안 켜면 `apps/web`이
+   `packages/core`를 볼 수 없다.
+4. 나머지 빌드 설정은 건드리지 않는다 — `apps/web/vercel.json`이 이미 정하고 있다
 
 ```json
 {
-  "buildCommand": "pnpm --filter @flare-alert/core build && pnpm --filter @flare-alert/web build",
-  "outputDirectory": "apps/web/.next"
+  "installCommand": "cd ../.. && pnpm install --frozen-lockfile",
+  "buildCommand": "cd ../.. && pnpm --filter @flare-alert/core build && pnpm --filter @flare-alert/web build",
+  "outputDirectory": ".next"
 }
 ```
 
-`packages/core`를 먼저 빌드해야 하는 이유는, `apps/web`이 core의 소스가 아니라
-빌드 결과(`dist/`)를 가져다 쓰기 때문이다. 기본 설정으로는 이 단계가 없어서
-빌드가 깨진다.
+`vercel.json`은 `apps/web/` 안에 있어야 한다. Root Directory가 그쪽으로
+잡혀 있으면 Vercel은 루트의 `vercel.json`을 아예 읽지 않는다.
+
+`cd ../..`로 저장소 루트까지 올라가는 이유는 pnpm 워크스페이스 설치와
+`packages/core` 빌드가 루트에서 이뤄져야 하기 때문이다. `outputDirectory`는
+`.next`(상대 경로)다 — Root Directory가 이미 `apps/web`이므로 여기서 다시
+`apps/web/.next`라고 쓰면 `apps/web/apps/web/.next`를 찾게 되어 실패한다.
 
 ### 2.2 환경변수
 
