@@ -69,13 +69,16 @@ let counter = 0;
  * id는 저장소가 정해지면 서버가 발급하게 된다. 지금은 브라우저 세션
  * 안에서만 유효하면 되므로 시각과 카운터를 조합한다. 같은 밀리초에
  * 두 개를 만들어도 겹치지 않는다.
+ *
+ * 이름은 비워 둔다. core는 사용자 언어를 모르므로 기본 이름을 여기서
+ * 정할 수 없다. 화면 쪽에서 번역된 이름을 넣어 부른다.
  */
 export function createChannel(overrides: Partial<Channel> = {}): Channel {
   counter += 1;
 
   return {
     id: `ch_${Date.now().toString(36)}_${counter.toString(36)}`,
-    name: "새 채널",
+    name: "",
     enabled: true,
     symbols: [],
     sensitivity: SENSITIVITY_DEFAULT,
@@ -116,13 +119,10 @@ export function validateChannel(channel: Channel): ChannelProblem[] {
   return problems;
 }
 
-export const CHANNEL_PROBLEM_MESSAGE: Record<ChannelProblem, string> = {
-  empty_name: "채널 이름을 입력해주세요.",
-  name_too_long: `채널 이름은 ${MAX_CHANNEL_NAME_LENGTH}자까지입니다.`,
-  no_symbols: "코인을 하나 이상 선택해주세요.",
-  too_many_symbols: `코인은 채널당 ${MAX_SYMBOLS_PER_CHANNEL}개까지입니다.`,
-  no_delivery: "알림 받을 방법을 하나 이상 골라주세요.",
-};
+// 문제를 문장으로 바꾸는 일은 core가 하지 않는다.
+// 웹은 사용자가 고른 언어로, detector는 나중에 텔레그램 수신자의 언어로
+// 써야 한다. 여기서 한 언어를 고르면 양쪽 다 틀린다.
+// 화면용 번역은 apps/web/src/lib/i18n.tsx의 formatProblem에 있다.
 
 /** 게스트가 쓸 수 있는 전달 수단. 텔레그램은 계정 연결이 필요하다. */
 export const GUEST_DELIVERY_METHODS: readonly DeliveryMethod[] = ["browser"];

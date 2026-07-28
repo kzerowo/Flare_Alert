@@ -23,6 +23,9 @@ pnpm-debug.log*
 .vercel/
 .fly/
 
+# Supabase CLI가 로컬에 만드는 캐시. 프로젝트 링크 정보라 체크아웃마다 다르다.
+supabase/.temp/
+
 # 에디터 / OS
 .DS_Store
 Thumbs.db

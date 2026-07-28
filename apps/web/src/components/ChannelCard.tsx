@@ -9,16 +9,8 @@ import {
 } from "@flare-alert/core";
 import type { Channel, Timeframe } from "@flare-alert/core";
 
+import { useT } from "@/lib/i18n";
 import { Icon } from "./Icon";
-
-const FRAME_LABEL: Record<Timeframe, string> = {
-  "1m": "1분봉급",
-  "5m": "5분봉급",
-  "15m": "15분봉급",
-  "1h": "1시간봉급",
-  "4h": "4시간봉급",
-  "1d": "1일봉급",
-};
 
 /**
  * 코인 상징색.
@@ -59,6 +51,7 @@ interface Props {
 }
 
 export function ChannelCard({ channel, onEdit, onRemove, onToggle }: Props) {
+  const t = useT();
   const position = percentileToSlider(channel.sensitivity);
   const perDay =
     estimateAlertsPerDay(position) * Math.max(channel.symbols.length, 1);
@@ -87,9 +80,9 @@ export function ChannelCard({ channel, onEdit, onRemove, onToggle }: Props) {
       <div className="grid flex-grow grid-cols-1 gap-4 p-4 md:grid-cols-2">
         <div className="space-y-4">
           <div>
-            <p className="label mb-1 text-on-surface-variant">감시 코인</p>
+            <p className="label mb-1 text-on-surface-variant">{t.card.symbols}</p>
             {channel.symbols.length === 0 ? (
-              <p className="text-body-sm text-outline">없음</p>
+              <p className="text-body-sm text-outline">{t.card.noSymbols}</p>
             ) : (
               <div className="flex flex-wrap gap-1">
                 {channel.symbols.map((ref) => {
@@ -115,13 +108,15 @@ export function ChannelCard({ channel, onEdit, onRemove, onToggle }: Props) {
 
           <div className="flex justify-between">
             <div>
-              <p className="label text-on-surface-variant">민감도</p>
+              <p className="label text-on-surface-variant">
+                {t.card.sensitivity}
+              </p>
               <p className="font-mono text-headline text-primary">
                 {position}%
               </p>
             </div>
             <div className="text-right">
-              <p className="label text-on-surface-variant">하루 알림</p>
+              <p className="label text-on-surface-variant">{t.card.perDay}</p>
               <p className="font-mono text-headline">
                 {perDay < 1 ? perDay.toFixed(1) : Math.round(perDay)}
               </p>
@@ -131,16 +126,18 @@ export function ChannelCard({ channel, onEdit, onRemove, onToggle }: Props) {
 
         <div className="space-y-4 border-t border-white/5 pt-4 md:border-l md:border-t-0 md:pl-4 md:pt-0">
           <div>
-            <p className="label mb-1 text-on-surface-variant">잡는 규모</p>
+            <p className="label mb-1 text-on-surface-variant">{t.card.catches}</p>
             <p className="text-body-sm">
               {scale === null
-                ? "가장 큰 급등만"
-                : `${FRAME_LABEL[scale]} 이상`}
+                ? t.card.catchesLargest
+                : t.card.catchesFrom(t.frameScale[scale])}
             </p>
           </div>
 
           <div>
-            <p className="label mb-1 text-on-surface-variant">알림 방법</p>
+            <p className="label mb-1 text-on-surface-variant">
+              {t.card.delivery}
+            </p>
             <div className="flex flex-wrap gap-1">
               {channel.delivery.map((method) => (
                 <span
@@ -148,7 +145,7 @@ export function ChannelCard({ channel, onEdit, onRemove, onToggle }: Props) {
                   className="label inline-flex items-center gap-1 rounded border border-primary/20 bg-primary/10 px-2 py-1 text-primary"
                 >
                   <Icon name={method === "browser" ? "globe" : "send"} size={14} />
-                  {method === "browser" ? "브라우저" : "텔레그램"}
+                  {method === "browser" ? t.form.browser : t.form.telegram}
                 </span>
               ))}
             </div>
@@ -165,7 +162,7 @@ export function ChannelCard({ channel, onEdit, onRemove, onToggle }: Props) {
             className="flex items-center gap-1 text-body-sm text-on-surface-variant transition-colors hover:text-primary"
           >
             <Icon name="edit" size={16} />
-            편집
+            {t.card.edit}
           </button>
           <button
             type="button"
@@ -173,7 +170,7 @@ export function ChannelCard({ channel, onEdit, onRemove, onToggle }: Props) {
             className="flex items-center gap-1 text-body-sm text-on-surface-variant transition-colors hover:text-danger"
           >
             <Icon name="trash" size={16} />
-            삭제
+            {t.card.remove}
           </button>
         </div>
 
@@ -181,7 +178,7 @@ export function ChannelCard({ channel, onEdit, onRemove, onToggle }: Props) {
           <span
             className={`label ${channel.enabled ? "text-primary" : "text-outline"}`}
           >
-            {channel.enabled ? "감시 중" : "꺼짐"}
+            {channel.enabled ? t.card.watching : t.card.off}
           </span>
 
           {/* 토글 스위치 */}
@@ -191,7 +188,7 @@ export function ChannelCard({ channel, onEdit, onRemove, onToggle }: Props) {
               checked={channel.enabled}
               onChange={onToggle}
               className="peer sr-only"
-              aria-label={`${channel.name} 켜고 끄기`}
+              aria-label={t.card.toggleLabel(channel.name)}
             />
             <span className="h-5 w-9 rounded-full bg-surface-highest after:absolute after:left-[2px] after:top-[2px] after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-all peer-checked:bg-primary-container peer-checked:after:translate-x-full" />
           </label>

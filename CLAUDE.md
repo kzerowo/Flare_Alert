@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-_Last updated: 2026-07-29 02:32_
+_Last updated: 2026-07-29 12:00_
 
 ## Project Overview
 
@@ -44,6 +44,22 @@ _Last updated: 2026-07-29 02:32_
 - No external font dependency; avoids loading delay and "more_vert" text flashing before font loads
 - Colors and weight follow `currentColor`
 
+**Cursor** (`globals.css` `@layer base`, 2026-07-29): browsers default `button` to `cursor: default`, so hover felt dead. One base-layer rule gives `pointer` to enabled buttons/`[role=button]`/`summary`/checkbox labels and `not-allowed` to disabled ones. It sits in `@layer base` so per-element `cursor-*` utilities still win.
+
+## Localization (2026-07-29)
+
+Korean and English. `packages/core` is language-neutral — it returns numbers and discriminated unions, never sentences.
+
+- **`apps/web/src/lib/locale.ts`** — `Locale`, `LOCALES`, `LOCALE_COOKIE`, `parseLocale`, `LOCALE_NAME`, `LOCALE_TAG`. **No `"use client"`.** Kept separate from the dictionary because `i18n.tsx` is a client module, and every export of a client module is unusable from a server component. `layout.tsx` reads the cookie on the server and needs `parseLocale` there.
+- **`apps/web/src/lib/i18n.tsx`** — dictionaries + `LocaleProvider` + `useT()`. `ko` is the source of truth; `en` is typed as `typeof ko`, so a phrase added only to Korean fails the build. Values that interpolate are functions, not templates — English pluralizes and Korean does not.
+- Components read `const t = useT()` and access fields directly (`t.form.cancel`). No string-key lookup, so typos are compile errors.
+- **Locale lives in a cookie**, not `localStorage`. The server must see it or the first paint renders Korean and then flips. `layout.tsx` and `generateMetadata()` both read it, which makes `/` a dynamic route — fine, the page is fully interactive anyway.
+
+Language-dependent formatting that used to live in core:
+- `describeAlertRate(perDay)` (core) returns `{kind: "never" | "everyNDays" | "perDay", ...}`; `formatAlertsPerDay(t, perDay)` (web) turns it into words. The thresholds (0.15 / 0.67 / 10) are language-independent logic and stay tested in core.
+- `validateChannel()` (core) returns `ChannelProblem[]`; `formatProblem(t, problem, limits)` (web) renders it. The detector will need these same problems in the *recipient's* language for Telegram, so core must not pick one.
+- `createChannel()` no longer defaults `name` to `"새 채널"` — it returns `""` and the form supplies `t.form.defaultName`.
+
 ## Directory Structure
 
 ```
@@ -66,15 +82,28 @@ _Last updated: 2026-07-29 02:32_
 │   │       └── config.ts  # Env var loading and validation
 │   └── web/               # Dashboard & settings UI
 │       ├── src/app/
-│       │   └── page.tsx            # Main app: channel list + creation + auth modal
-│       └── src/components/
-│           ├── MainApp.tsx                # App root with guest/member modes + guest state in sessionStorage
-│           ├── ChannelCard.tsx            # Display channel with edit/delete/toggle actions
-│           ├── ChannelForm.tsx            # Create/edit channel UI with coin selection + sensitivity slider
-│           ├── AuthDialog.tsx             # Login/signup modal (screen only, not functional yet)
-│           ├── SensitivitySlider.tsx      # Interactive sensitivity control with frame-standard tick marks
-│           ├── Icon.tsx                   # Inline SVG icons (14 icons, no external font dependency)
-│           └── lib/                       # UI utilities
+│       │   ├── layout.tsx          # Reads locale cookie on the server, wraps LocaleProvider
+│       │   └── page.tsx            # AuthProvider > ChannelStoreProvider > MainApp
+│       ├── src/middleware.ts       # Supabase session refresh (only place cookies can be written)
+│       ├── src/components/
+│       │   ├── MainApp.tsx                # App root: nav, hero, channel grid, error banner
+│       │   ├── ChannelCard.tsx            # Display channel with edit/delete/toggle actions
+│       │   ├── ChannelForm.tsx            # Create/edit channel UI with coin selection + sensitivity slider
+│       │   ├── AuthDialog.tsx             # Login/signup against Supabase Auth
+│       │   ├── SensitivitySlider.tsx      # Interactive sensitivity control with frame-standard tick marks
+│       │   ├── LanguageToggle.tsx         # ko/en segmented control
+│       │   └── Icon.tsx                   # Inline SVG icons (14 icons, no external font dependency)
+│       └── src/lib/
+│           ├── locale.ts                  # Locale primitives — NO "use client" (server reads these)
+│           ├── i18n.tsx                   # Dictionaries + LocaleProvider + useT()
+│           ├── auth.tsx                   # AuthProvider over Supabase Auth
+│           ├── channel-store.tsx          # Guest (sessionStorage) / member (Supabase) dual mode
+│           └── supabase/
+│               ├── config.ts              # Env vars; isSupabaseConfigured()
+│               ├── client.ts              # Cached browser client (null when unconfigured)
+│               ├── server.ts              # Server-component client (read-only cookies)
+│               ├── types.ts               # Database types — `type`, not `interface` (see below)
+│               └── channels.ts            # Channel read/write against Supabase
 ├── packages/
 │   └── core/src/
 │       ├── types.ts            # Domain types + interfaces (Alert, AlertBuilder)
@@ -85,10 +114,32 @@ _Last updated: 2026-07-29 02:32_
 │       ├── cooldown.ts         # Time-decay cooldown
 │       ├── sensitivity.ts      # Slider ↔ percentile conversion, single channel rate curve
 │       └── sensitivity.test.ts # Tests for slider/percentile round-trip and scale labels
+├── supabase/
+│   └── migrations/
+│       └── 0001_init.sql  # profiles / channels / channel_symbols + RLS
 ├── docs/                  # Korean planning docs (algorithm/architecture/
-│                          #   research/decisions)
+│                          #   research/decisions/deploy)
+├── vercel.json            # Monorepo build: core first, then web
 └── data/                  # Backtest data — gitignored, ~1.2GB
 ```
+
+## Storage (Supabase, 2026-07-29)
+
+Schema in `supabase/migrations/0001_init.sql`. Three tables, RLS on all of them.
+
+**`channel_symbols` is a separate table, not an array column on `channels`.** The detector's per-second question is "which channels watch BTCUSDT" — a reverse lookup. An array or jsonb column can't be indexed for that, so every tick would scan all channels. The child table carries `(exchange, symbol)` index for exactly this path.
+
+**`sensitivity` stores the percentile, never the slider position.** The slider is a log-axis presentation; storing positions would silently change every user's setting if the axis is ever retuned.
+
+**RLS is the only defense.** The web queries Supabase directly from the browser with the anon key — a public value. No API-route layer sits in between because there's nothing for it to protect that RLS doesn't. The detector uses `SUPABASE_SERVICE_ROLE_KEY`, which bypasses RLS; that key must never get a `NEXT_PUBLIC_` prefix.
+
+**Missing env vars are not an error.** `isSupabaseConfigured()` returns false, clients return `null`, and the app runs guest-only. A fresh checkout works without a Supabase project.
+
+**`apps/web/src/lib/supabase/types.ts` uses `type`, not `interface`.** supabase-js requires each table to satisfy `Record<string, unknown>`; interfaces don't get implicit index signatures, so the whole schema silently degrades to `never` and errors surface as the misleading `Property 'id' does not exist on type 'never'`.
+
+Guest→member transition migrates sessionStorage channels into the account once, then clears sessionStorage. Writes are optimistic: local state updates first, the row write follows, and a failure rolls the state back and raises a `StoreProblem`.
+
+See `docs/deploy.md` for the Vercel + Supabase setup procedure.
 
 ## Key Concepts
 
@@ -272,28 +323,36 @@ From `.env.example`:
 - `PORT` — health-check HTTP port (default 8080)
 - `LOG_LEVEL` — `debug` | `info` | `warn` | `error`
 - `NEXT_PUBLIC_APP_URL` — web only, browser-exposed
+- `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` — web; **absence is handled**, the app falls back to guest-only
+- `SUPABASE_SERVICE_ROLE_KEY` — detector only; bypasses RLS, never `NEXT_PUBLIC_`
 
-There is no database or Binance API key yet; storage is undecided.
+Next.js reads `apps/web/.env.local`, not the root `.env`. The Supabase pair has to go in the former for `pnpm dev:web` to enable accounts.
+
+There is no Binance API key (public dumps and public WS need none).
 
 ## Testing
 
-`packages/core` has 53 tests (`node:test`, no framework dependency) covering math primitives, baseline/score edge cases, percentile accuracy against exact sorted ranks, day-based sample eviction, and cooldown behavior.
+`packages/core` has 72 tests (`node:test`, no framework dependency) covering math primitives, baseline/score edge cases, percentile accuracy against exact sorted ranks, day-based sample eviction, cooldown behavior, slider↔percentile round-trips, scale markers, and alert-rate description thresholds.
 
 Not yet covered: the detector pipeline (unimplemented), frame merging (lives in backtest), and the web app.
+
+**Typecheck does not catch server/client boundary violations.** Calling a `"use client"` export from a server component compiles fine and fails at request time with a 500. After touching `layout.tsx` or anything it imports, actually load the page (`curl -s -o /dev/null -w "%{http_code}" http://localhost:3000`).
 
 ## Known Gaps & Next Steps
 
 1. **Alert quality is unmeasured.** The backtest only counted how often alerts fire, never whether price actually moved afterward. Price data is already in the same dumps.
 2. **`MIN_QUOTE_VOLUME` has no evidential basis** yet dominates small-cap results.
-3. **Detector pipeline** — WebSocket, 1s aggregation, filter chain, Telegram dispatch.
-4. **Storage schema** — user config, alert history, percentile distribution persistence.
+3. **Detector pipeline** — WebSocket, 1s aggregation, filter chain, Telegram dispatch. Nothing produces alerts yet, so browser notifications never actually fire.
+4. **Storage** — ✅ schema, auth, and channel persistence done (see § Storage). Still missing: alert-history table (no producer yet), Telegram linking flow, password reset.
 5. **Web UI — Main page** (merged landing + channel creation):
-   - ✅ `MainApp` — guest/member mode split, guest state persisted in sessionStorage (tab-scoped)
+   - ✅ `MainApp` — guest/member split driven by real auth state
    - ✅ `ChannelCard` — edit/delete/toggle channel actions
    - ✅ `ChannelForm` — create/edit UI with coin selection + `SensitivitySlider`
-   - ✅ `AuthDialog` — login/signup modal (screen only, awaiting storage schema)
+   - ✅ `AuthDialog` — functional email/password against Supabase Auth
    - ✅ Browser notification permission request (shown when channel list non-empty)
-   - TODO: Connect to storage backend (channel-store.tsx will sync form data to server once storage is decided)
-6. **Backtest tools**:
+   - ✅ Korean/English toggle
+   - TODO: alert history view; coin list is 32 hardcoded symbols rather than fetched from Binance
+6. **Deployment** — `vercel.json` is in place; connecting the Vercel project and filling env vars is a manual account step (`docs/deploy.md`). The detector still has no host.
+7. **Backtest tools**:
    - ✅ `apps/backtest/src/event-scale.ts`: Measures event-scale percentiles and channel rate curve (replaces `frame-standards.ts`)
    - ✅ `FRAME_SCALE_PERCENTILE` and `CHANNEL_RATE_CURVE` published in constants

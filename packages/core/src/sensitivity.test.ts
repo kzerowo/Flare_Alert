@@ -12,7 +12,7 @@ import {
   SLIDER_MAX,
   SLIDER_MIN,
   estimateAlertsPerDay,
-  formatAlertsPerDay,
+  describeAlertRate,
   percentileToSlider,
   sliderToPercentile,
 } from "./sensitivity.js";
@@ -147,19 +147,24 @@ describe("estimateAlertsPerDay", () => {
   });
 });
 
-describe("formatAlertsPerDay", () => {
+describe("describeAlertRate", () => {
   it("빈도에 따라 표현을 바꾼다", () => {
-    assert.equal(formatAlertsPerDay(0.05), "거의 안 울림");
-    assert.equal(formatAlertsPerDay(0.5), "2일에 1회");
-    assert.equal(formatAlertsPerDay(2.5), "하루 2.5회");
-    assert.equal(formatAlertsPerDay(19), "하루 19회");
+    assert.deepEqual(describeAlertRate(0.05), { kind: "never" });
+    assert.deepEqual(describeAlertRate(0.5), { kind: "everyNDays", days: 2 });
+    assert.deepEqual(describeAlertRate(2.5), { kind: "perDay", value: "2.5" });
+    assert.deepEqual(describeAlertRate(19), { kind: "perDay", value: "19" });
   });
 
   it("하루 1회 근처를 '1일에 1회'로 바꾸지 않는다", () => {
-    assert.equal(formatAlertsPerDay(0.9), "하루 0.9회");
+    assert.deepEqual(describeAlertRate(0.9), { kind: "perDay", value: "0.9" });
   });
 
   it("하루 1회 미만은 며칠에 한 번으로 읽어준다", () => {
-    assert.equal(formatAlertsPerDay(0.33), "3일에 1회");
+    assert.deepEqual(describeAlertRate(0.33), { kind: "everyNDays", days: 3 });
+  });
+
+  it("10회를 넘으면 소수점을 버린다", () => {
+    // 하루 23.4회라는 표기는 있지도 않은 정밀도를 주장한다.
+    assert.deepEqual(describeAlertRate(23.4), { kind: "perDay", value: "23" });
   });
 });

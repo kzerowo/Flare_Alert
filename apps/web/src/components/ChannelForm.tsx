@@ -3,7 +3,6 @@
 import { useMemo, useState } from "react";
 
 import {
-  CHANNEL_PROBLEM_MESSAGE,
   MAX_CHANNEL_NAME_LENGTH,
   MAX_SYMBOLS_PER_CHANNEL,
   POPULAR_BINANCE_SYMBOLS,
@@ -14,6 +13,7 @@ import {
 } from "@flare-alert/core";
 import type { Channel, DeliveryMethod } from "@flare-alert/core";
 
+import { formatProblem, useT } from "@/lib/i18n";
 import { Icon } from "./Icon";
 import { SensitivitySlider } from "./SensitivitySlider";
 
@@ -43,7 +43,14 @@ interface Props {
 }
 
 export function ChannelForm({ initial, signedIn, onSave, onCancel }: Props) {
-  const [draft, setDraft] = useState<Channel>(() => initial ?? createChannel());
+  const t = useT();
+
+  // 기본 이름은 core가 모른다. 언어를 아는 여기서 넣는다.
+  // 초기값 계산은 첫 렌더에만 돌아서, 도중에 언어를 바꿔도 이미 입력한
+  // 이름을 덮어쓰지 않는다.
+  const [draft, setDraft] = useState<Channel>(
+    () => initial ?? createChannel({ name: t.form.defaultName }),
+  );
   const [query, setQuery] = useState("");
   const [showProblems, setShowProblems] = useState(false);
 
@@ -104,10 +111,10 @@ export function ChannelForm({ initial, signedIn, onSave, onCancel }: Props) {
     <div className="panel overflow-hidden rounded-xl">
       <div className="border-b border-white/5 p-6">
         <h2 className="text-display">
-          {initial === undefined ? "채널 만들기" : "채널 편집"}
+          {initial === undefined ? t.form.createTitle : t.form.editTitle}
         </h2>
         <p className="mt-1 text-body-sm text-on-surface-variant">
-          감시할 코인을 묶고 민감도를 정하세요.
+          {t.form.subtitle}
         </p>
       </div>
 
@@ -115,7 +122,7 @@ export function ChannelForm({ initial, signedIn, onSave, onCancel }: Props) {
         {/* 이름 */}
         <section className="space-y-2">
           <label htmlFor="channel-name" className="label block text-on-surface-variant">
-            채널 이름
+            {t.form.nameLabel}
           </label>
           <input
             id="channel-name"
@@ -125,7 +132,7 @@ export function ChannelForm({ initial, signedIn, onSave, onCancel }: Props) {
             onChange={(event) =>
               setDraft((previous) => ({ ...previous, name: event.target.value }))
             }
-            placeholder="예: 메이저 단타"
+            placeholder={t.form.namePlaceholder}
             className="w-full rounded-lg border border-white/10 bg-surface px-4 py-4 text-body transition-all placeholder:text-outline-variant focus:border-primary focus:outline-none"
           />
         </section>
@@ -133,9 +140,11 @@ export function ChannelForm({ initial, signedIn, onSave, onCancel }: Props) {
         {/* 코인 */}
         <section className="space-y-4">
           <div className="flex items-end justify-between">
-            <span className="label text-on-surface-variant">감시 코인</span>
+            <span className="label text-on-surface-variant">
+              {t.form.symbolsLabel}
+            </span>
             <span className="font-mono text-data text-primary">
-              {draft.symbols.length}개 선택
+              {t.form.symbolsSelected(draft.symbols.length)}
             </span>
           </div>
 
@@ -147,14 +156,14 @@ export function ChannelForm({ initial, signedIn, onSave, onCancel }: Props) {
               type="search"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="코인 검색 (BTC, ETH, SOL...)"
+              placeholder={t.form.searchPlaceholder}
               className="w-full rounded-lg border border-white/10 bg-surface py-4 pl-12 pr-4 text-body transition-all placeholder:text-outline-variant focus:border-primary focus:outline-none"
             />
           </div>
 
           <div className="flex max-h-56 flex-wrap gap-2 overflow-y-auto">
             {matches.length === 0 ? (
-              <p className="text-body-sm text-outline">검색 결과가 없습니다.</p>
+              <p className="text-body-sm text-outline">{t.form.noMatches}</p>
             ) : (
               matches.map((symbol) => {
                 const name = displaySymbol(symbol);
@@ -196,7 +205,9 @@ export function ChannelForm({ initial, signedIn, onSave, onCancel }: Props) {
 
         {/* 전달 수단 */}
         <section className="space-y-4">
-          <span className="label block text-on-surface-variant">알림 방법</span>
+          <span className="label block text-on-surface-variant">
+            {t.form.deliveryLabel}
+          </span>
 
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <label className="flex cursor-pointer items-center gap-4 rounded-lg border border-white/10 bg-surface p-4 transition-all hover:border-primary/50">
@@ -207,9 +218,9 @@ export function ChannelForm({ initial, signedIn, onSave, onCancel }: Props) {
                 className="h-5 w-5 accent-primary-container"
               />
               <span className="flex flex-col">
-                <span className="text-body">브라우저</span>
+                <span className="text-body">{t.form.browser}</span>
                 <span className="text-body-sm text-on-surface-variant">
-                  탭이 열려 있는 동안 울립니다
+                  {t.form.browserHint}
                 </span>
               </span>
             </label>
@@ -228,15 +239,15 @@ export function ChannelForm({ initial, signedIn, onSave, onCancel }: Props) {
               />
               <span className="flex flex-col">
                 <span className="flex items-center gap-1">
-                  <span className="text-body">텔레그램</span>
+                  <span className="text-body">{t.form.telegram}</span>
                   {signedIn ? null : (
                     <span className="label rounded bg-white/10 px-1 py-[1px] text-[10px] text-on-surface-variant">
-                      로그인 필요
+                      {t.form.loginRequired}
                     </span>
                   )}
                 </span>
                 <span className="text-body-sm text-on-surface-variant">
-                  자리를 비워도 폰으로 받습니다
+                  {t.form.telegramHint}
                 </span>
               </span>
             </label>
@@ -246,7 +257,13 @@ export function ChannelForm({ initial, signedIn, onSave, onCancel }: Props) {
         {showProblems && problems.length > 0 ? (
           <ul className="space-y-1 rounded-lg border border-danger/30 bg-danger/5 p-4 text-body-sm text-danger">
             {problems.map((problem) => (
-              <li key={problem}>· {CHANNEL_PROBLEM_MESSAGE[problem]}</li>
+              <li key={problem}>
+                ·{" "}
+                {formatProblem(t, problem, {
+                  maxNameLength: MAX_CHANNEL_NAME_LENGTH,
+                  maxSymbols: MAX_SYMBOLS_PER_CHANNEL,
+                })}
+              </li>
             ))}
           </ul>
         ) : null}
@@ -259,14 +276,14 @@ export function ChannelForm({ initial, signedIn, onSave, onCancel }: Props) {
           onClick={onCancel}
           className="label px-12 py-4 text-on-surface-variant transition-colors hover:text-on-surface"
         >
-          취소
+          {t.form.cancel}
         </button>
         <button
           type="button"
           onClick={submit}
           className="rounded-lg bg-primary-container px-12 py-4 font-bold text-on-primary-container transition-all hover:shadow-[0_0_20px_rgba(56,189,248,0.4)] active:scale-95"
         >
-          {initial === undefined ? "채널 만들기" : "저장"}
+          {initial === undefined ? t.form.createTitle : t.form.save}
         </button>
       </div>
     </div>

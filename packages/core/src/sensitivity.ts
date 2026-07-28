@@ -96,21 +96,36 @@ export function estimateAlertsPerDay(sliderPosition: number): number {
   return curve[curve.length - 1] ?? 0;
 }
 
-/** 하루 알림 수를 사람이 읽을 문구로. */
-export function formatAlertsPerDay(perDay: number): string {
+/**
+ * 알림 빈도를 어떤 식으로 읽어줄지.
+ *
+ * 문장은 core가 만들지 않는다. 언어마다 표현이 갈려서("3일에 1회" /
+ * "once every 3 days") 여기서 한 언어를 고르면 다른 쪽이 틀린다.
+ * 대신 "어느 표현을 쓸지"와 그 안에 들어갈 숫자만 정해서 넘긴다.
+ * 그 판단(경계값 0.15 / 0.67 / 10)은 언어와 무관하므로 여기서 검증한다.
+ *
+ * 실제 문구는 apps/web/src/lib/i18n.tsx의 formatAlertsPerDay에 있다.
+ */
+export type AlertRateDescription =
+  | { kind: "never" }
+  | { kind: "everyNDays"; days: number }
+  | { kind: "perDay"; value: string };
+
+export function describeAlertRate(perDay: number): AlertRateDescription {
   if (perDay < 0.15) {
-    return "거의 안 울림";
+    return { kind: "never" };
   }
+
   // 하루 0.3회는 "사흘에 한 번"이 더 잘 읽힌다.
   // 다만 0.9회를 "1일에 1회"로 바꾸면 오히려 어색하므로 2일 이상만.
   if (perDay < 0.67) {
-    return `${Math.round(1 / perDay)}일에 1회`;
+    return { kind: "everyNDays", days: Math.round(1 / perDay) };
   }
+
+  // 10회를 넘어가면 소수점 한 자리가 정밀도를 가장한 잡음이 된다.
   if (perDay < 10) {
-    return `하루 ${perDay.toFixed(1)}회`;
+    return { kind: "perDay", value: perDay.toFixed(1) };
   }
-  if (perDay < 10) {
-    return `하루 ${perDay.toFixed(1)}회`;
-  }
-  return `하루 ${Math.round(perDay)}회`;
+
+  return { kind: "perDay", value: String(Math.round(perDay)) };
 }

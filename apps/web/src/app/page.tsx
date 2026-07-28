@@ -4,12 +4,16 @@
 // 이 서비스가 하는 일의 전부라, 페이지를 나누면 왕복만 늘어난다.
 
 import { MainApp } from "@/components/MainApp";
+import { AuthProvider } from "@/lib/auth";
 import { ChannelStoreProvider } from "@/lib/channel-store";
 
 export default function HomePage() {
+  // 저장소가 인증 상태를 보고 게스트/계정을 고르므로 인증이 바깥에 온다.
   return (
-    <ChannelStoreProvider>
-      <MainApp />
-    </ChannelStoreProvider>
+    <AuthProvider>
+      <ChannelStoreProvider>
+        <MainApp />
+      </ChannelStoreProvider>
+    </AuthProvider>
   );
 }

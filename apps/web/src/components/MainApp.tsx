@@ -4,11 +4,15 @@ import { useEffect, useState } from "react";
 
 import type { Channel } from "@flare-alert/core";
 
+import { useAuth } from "@/lib/auth";
 import { useChannels } from "@/lib/channel-store";
+import { useT } from "@/lib/i18n";
+import type { Dictionary } from "@/lib/i18n";
 import { AuthDialog } from "./AuthDialog";
 import { ChannelCard } from "./ChannelCard";
 import { ChannelForm } from "./ChannelForm";
 import { Icon } from "./Icon";
+import { LanguageToggle } from "./LanguageToggle";
 
 type View =
   | { kind: "list" }
@@ -41,53 +45,87 @@ function useNotificationPermission() {
 }
 
 export function MainApp() {
-  const { channels, loaded, add, update, remove } = useChannels();
+  const t = useT();
+  const { user, signOut } = useAuth();
+  const { channels, loaded, problem, dismissProblem, add, update, remove } =
+    useChannels();
   const [view, setView] = useState<View>({ kind: "list" });
   const [auth, setAuth] = useState<"login" | "signup" | null>(null);
   const notification = useNotificationPermission();
 
-  // 로그인은 아직 없다. 붙으면 세션에서 읽어온다.
-  const signedIn = false;
+  const signedIn = user !== null;
 
   return (
     <div className="flex min-h-screen flex-col">
       <header className="sticky top-0 z-40 border-b border-white/5 bg-surface/80 backdrop-blur-md">
         <div className="mx-auto flex w-full max-w-5xl items-center justify-between px-4 py-4 md:px-6">
           <span className="text-headline font-bold text-primary">
-            Flare Alert
+            {t.brand}
           </span>
 
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setAuth("login")}
-              className="label px-4 py-2 text-on-surface-variant transition-colors hover:text-primary"
-            >
-              로그인
-            </button>
-            <button
-              type="button"
-              onClick={() => setAuth("signup")}
-              className="label rounded-lg bg-primary-container px-6 py-2 font-bold text-on-primary-container transition-all hover:opacity-90"
-            >
-              회원가입
-            </button>
+            <LanguageToggle />
+
+            {signedIn ? (
+              <>
+                <span className="hidden max-w-[14rem] truncate px-2 text-body-sm text-on-surface-variant sm:block">
+                  {user.email}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => void signOut()}
+                  className="label px-4 py-2 text-on-surface-variant transition-colors hover:text-primary"
+                >
+                  {t.nav.logout}
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setAuth("login")}
+                  className="label px-4 py-2 text-on-surface-variant transition-colors hover:text-primary"
+                >
+                  {t.nav.login}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAuth("signup")}
+                  className="label rounded-lg bg-primary-container px-6 py-2 font-bold text-on-primary-container transition-all hover:opacity-90"
+                >
+                  {t.nav.signup}
+                </button>
+              </>
+            )}
           </div>
         </div>
       </header>
 
       <main className="mx-auto w-full max-w-5xl flex-grow space-y-6 px-4 py-6 md:px-6">
+        {problem === null ? null : (
+          <div className="flex items-start justify-between gap-4 rounded-lg border border-danger/30 bg-danger/5 p-4">
+            <p className="text-body-sm text-danger">
+              {problem === "load" ? t.store.loadFailed : t.store.saveFailed}
+            </p>
+            <button
+              type="button"
+              onClick={dismissProblem}
+              className="shrink-0 text-danger transition-opacity hover:opacity-70"
+              aria-label={t.store.dismiss}
+            >
+              <Icon name="close" size={16} />
+            </button>
+          </div>
+        )}
+
         {view.kind === "list" ? (
           <>
             <section className="rounded-xl border border-white/5 bg-surface-low p-6">
               <div className="flex flex-col justify-between gap-6 md:flex-row md:items-center">
                 <div>
-                  <h1 className="text-display">
-                    코인마다 임계치를 맞출 필요 없는 급등 알림
-                  </h1>
+                  <h1 className="text-display">{t.hero.title}</h1>
                   <p className="mt-1 text-body-sm text-on-surface-variant">
-                    감시할 코인을 채널로 묶고 민감도만 정하면, 종목별 평소
-                    거래량에 맞춰 자동으로 보정됩니다.
+                    {t.hero.body}
                   </p>
                 </div>
 
@@ -97,10 +135,8 @@ export function MainApp() {
                       <Icon name="info" size={18} />
                     </span>
                     <div>
-                      <p className="label text-primary">게스트</p>
-                      <p className="mt-1 text-body-sm">
-                        채널은 이 탭이 열려 있는 동안 유지됩니다.
-                      </p>
+                      <p className="label text-primary">{t.hero.guestBadge}</p>
+                      <p className="mt-1 text-body-sm">{t.hero.guestBody}</p>
                     </div>
                   </div>
                 )}
@@ -108,6 +144,7 @@ export function MainApp() {
             </section>
 
             <NotificationNotice
+              t={t}
               state={notification.state}
               onRequest={notification.request}
               hasChannels={channels.length > 0}
@@ -116,10 +153,10 @@ export function MainApp() {
             <div className="flex items-end justify-between border-b border-white/5 pb-4">
               <div>
                 <h2 className="text-headline">
-                  내 채널{channels.length > 0 ? ` (${channels.length})` : ""}
+                  {t.list.heading(channels.length)}
                 </h2>
                 <p className="mt-1 text-body-sm text-on-surface-variant">
-                  감시 중인 목록입니다
+                  {t.list.subtitle}
                 </p>
               </div>
 
@@ -129,7 +166,7 @@ export function MainApp() {
                 className="flex shrink-0 items-center gap-1 rounded-lg bg-primary-container px-6 py-4 font-bold text-on-primary-container transition-all hover:brightness-110"
               >
                 <Icon name="plus" size={18} />
-                채널 만들기
+                {t.list.create}
               </button>
             </div>
 
@@ -138,16 +175,16 @@ export function MainApp() {
                 <span className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-surface-high text-primary">
                   <Icon name="chart" size={32} />
                 </span>
-                <h3 className="text-title">아직 채널이 없습니다</h3>
+                <h3 className="text-title">{t.list.emptyTitle}</h3>
                 <p className="mb-6 mt-1 text-body-sm text-on-surface-variant">
-                  코인 몇 개를 묶어 첫 채널을 만들어보세요.
+                  {t.list.emptyBody}
                 </p>
                 <button
                   type="button"
                   onClick={() => setView({ kind: "create" })}
                   className="rounded-lg border border-primary/30 bg-primary/10 px-6 py-2 font-bold text-primary transition-all hover:bg-primary/20"
                 >
-                  첫 채널 만들기
+                  {t.list.emptyAction}
                 </button>
               </div>
             ) : (
@@ -185,10 +222,9 @@ export function MainApp() {
 
       <footer className="border-t border-white/5 bg-sunken">
         <div className="mx-auto w-full max-w-5xl px-4 py-6 md:px-6">
-          <span className="text-title font-bold">Flare Alert</span>
+          <span className="text-title font-bold">{t.brand}</span>
           <p className="mt-1 text-body-sm text-on-surface-variant">
-            감지 엔진은 아직 연결되지 않았습니다. 지금은 채널을 만들고 설정을
-            확인하는 것까지 됩니다.
+            {t.footer.note}
           </p>
         </div>
       </footer>
@@ -201,10 +237,12 @@ export function MainApp() {
 }
 
 function NotificationNotice({
+  t,
   state,
   onRequest,
   hasChannels,
 }: {
+  t: Dictionary;
   state: NotificationState;
   onRequest: () => void;
   hasChannels: boolean;
@@ -217,7 +255,7 @@ function NotificationNotice({
   if (state === "unsupported") {
     return (
       <div className="rounded-lg border border-white/5 bg-card p-4 text-body-sm text-on-surface-variant">
-        이 브라우저는 알림을 지원하지 않습니다. 크롬이나 엣지를 써주세요.
+        {t.notification.unsupported}
       </div>
     );
   }
@@ -225,8 +263,7 @@ function NotificationNotice({
   if (state === "denied") {
     return (
       <div className="rounded-lg border border-danger/30 bg-danger/5 p-4 text-body-sm text-danger">
-        알림이 차단되어 있습니다. 주소창 왼쪽 자물쇠 아이콘에서 이 사이트의
-        알림을 허용해주세요.
+        {t.notification.denied}
       </div>
     );
   }
@@ -234,14 +271,14 @@ function NotificationNotice({
   return (
     <div className="flex items-center justify-between gap-4 rounded-lg border border-primary/30 bg-primary/5 p-4">
       <p className="text-body-sm text-on-surface-variant">
-        알림을 받으려면 브라우저 권한이 필요합니다.
+        {t.notification.prompt}
       </p>
       <button
         type="button"
         onClick={onRequest}
         className="label shrink-0 rounded-lg bg-primary-container px-6 py-2 font-bold text-on-primary-container transition-all hover:opacity-90"
       >
-        알림 켜기
+        {t.notification.enable}
       </button>
     </div>
   );

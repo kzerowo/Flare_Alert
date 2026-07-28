@@ -8,22 +8,13 @@ import {
   SLIDER_MIN,
   TIMEFRAMES,
   estimateAlertsPerDay,
-  formatAlertsPerDay,
   percentileToSlider,
   sliderToPercentile,
 } from "@flare-alert/core";
 import type { Timeframe } from "@flare-alert/core";
 
+import { formatAlertsPerDay, useT } from "@/lib/i18n";
 import { Icon } from "./Icon";
-
-const FRAME_LABEL: Record<Timeframe, string> = {
-  "1m": "1분봉",
-  "5m": "5분봉",
-  "15m": "15분봉",
-  "1h": "1시간봉",
-  "4h": "4시간봉",
-  "1d": "1일봉",
-};
 
 /**
  * 사건 규모 눈금.
@@ -93,6 +84,7 @@ interface Props {
 }
 
 export function SensitivitySlider({ value, onChange, symbolCount = 1 }: Props) {
+  const t = useT();
   const markers = useMemo(buildMarkers, []);
   const position = percentileToSlider(value);
 
@@ -104,7 +96,7 @@ export function SensitivitySlider({ value, onChange, symbolCount = 1 }: Props) {
     <section className="space-y-4">
       <div className="flex items-end justify-between">
         <label htmlFor="sensitivity" className="label text-on-surface-variant">
-          민감도
+          {t.slider.label}
         </label>
         <span className="font-mono text-headline text-primary">
           {position}%
@@ -127,7 +119,7 @@ export function SensitivitySlider({ value, onChange, symbolCount = 1 }: Props) {
                     active ? "font-bold text-primary" : "text-outline"
                   }`}
                 >
-                  {marker.timeframes.join("·")}
+                  {marker.timeframes.map((tf) => t.frame[tf]).join("·")}
                 </span>
                 <span
                   className={`mt-0.5 h-2 w-px ${
@@ -153,8 +145,10 @@ export function SensitivitySlider({ value, onChange, symbolCount = 1 }: Props) {
         />
 
         <div className="mt-2 flex justify-between">
-          <span className="label text-on-surface-variant">조용히</span>
-          <span className="label text-on-surface-variant">자주</span>
+          <span className="label text-on-surface-variant">{t.slider.quiet}</span>
+          <span className="label text-on-surface-variant">
+            {t.slider.frequent}
+          </span>
         </div>
       </div>
 
@@ -164,28 +158,30 @@ export function SensitivitySlider({ value, onChange, symbolCount = 1 }: Props) {
           <Icon name="chart" size={20} />
         </span>
         <div className="space-y-1">
-          <h4 className="text-title text-primary">이 설정이면</h4>
+          <h4 className="text-title text-primary">{t.slider.summaryTitle}</h4>
           {caught === null ? (
-            <p className="text-body-sm">가장 큰 급등에만 알림이 옵니다.</p>
+            <p className="text-body-sm">{t.slider.catchesLargest}</p>
           ) : (
             <p className="text-body-sm">
-              <b>{FRAME_LABEL[caught]}</b> 차트에서 눈에 띌 규모의 급등부터
-              알림이 옵니다.
+              {t.slider.catchesFromBefore}
+              <b>{t.frame[caught]}</b>
+              {t.slider.catchesFromAfter}
             </p>
           )}
           <p className="text-body-sm text-on-surface-variant">
             {symbolCount > 1
-              ? `코인 ${symbolCount}개 합쳐 ${formatAlertsPerDay(perDay)} 정도 (개당 ${formatAlertsPerDay(perCoin)})`
-              : `코인 1개당 ${formatAlertsPerDay(perCoin)} 정도`}
+              ? t.slider.rateTotal(
+                  symbolCount,
+                  formatAlertsPerDay(t, perDay),
+                  formatAlertsPerDay(t, perCoin),
+                )
+              : t.slider.ratePerCoin(formatAlertsPerDay(t, perCoin))}
           </p>
         </div>
       </div>
 
       <p className="text-[11px] leading-relaxed text-outline">
-        눈금은 민감도의 세기를 가늠하기 위한 참고입니다. 알림 기준은 민감도
-        하나뿐이며, 봉마다 따로 울리지 않고 채널당 하나로 나갑니다. 수치는
-        바이낸스 6종목 백테스트(2026년 4~6월) 평균이라 대형 종목일수록 더 자주
-        울립니다.
+        {t.slider.footnote}
       </p>
     </section>
   );
