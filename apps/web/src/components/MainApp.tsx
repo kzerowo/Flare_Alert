@@ -8,6 +8,7 @@ import { useChannels } from "@/lib/channel-store";
 import { AuthDialog } from "./AuthDialog";
 import { ChannelCard } from "./ChannelCard";
 import { ChannelForm } from "./ChannelForm";
+import { Icon } from "./Icon";
 
 type View =
   | { kind: "list" }
@@ -49,67 +50,108 @@ export function MainApp() {
   const signedIn = false;
 
   return (
-    <div className="mx-auto min-h-screen w-full max-w-2xl px-6 py-10">
-      <header className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold tracking-tight">Flare Alert</h1>
+    <div className="flex min-h-screen flex-col">
+      <header className="sticky top-0 z-40 border-b border-white/5 bg-surface/80 backdrop-blur-md">
+        <div className="mx-auto flex w-full max-w-5xl items-center justify-between px-md py-md md:px-lg">
+          <span className="text-headline font-bold text-primary">
+            Flare Alert
+          </span>
 
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setAuth("login")}
-            className="rounded-lg px-3 py-1.5 text-sm text-flare-muted hover:text-flare-accent"
-          >
-            로그인
-          </button>
-          <button
-            type="button"
-            onClick={() => setAuth("signup")}
-            className="rounded-lg border border-flare-accent/40 px-3 py-1.5 text-sm text-flare-accent hover:bg-flare-accent/10"
-          >
-            회원가입
-          </button>
+          <div className="flex items-center gap-sm">
+            <button
+              type="button"
+              onClick={() => setAuth("login")}
+              className="label px-md py-sm text-on-surface-variant transition-colors hover:text-primary"
+            >
+              로그인
+            </button>
+            <button
+              type="button"
+              onClick={() => setAuth("signup")}
+              className="label rounded-lg bg-primary-container px-lg py-sm font-bold text-on-primary-container transition-all hover:opacity-90"
+            >
+              회원가입
+            </button>
+          </div>
         </div>
       </header>
 
-      <p className="mt-3 text-sm leading-relaxed text-flare-muted">
-        감시할 코인을 채널로 묶고 민감도만 정하세요. 코인마다 임계치를 따로
-        맞출 필요 없이, 종목별 평소 거래량에 맞춰 자동으로 보정됩니다.
-      </p>
+      <main className="mx-auto w-full max-w-5xl flex-grow space-y-lg px-md py-lg md:px-lg">
+        {view.kind === "list" ? (
+          <>
+            <section className="rounded-xl border border-white/5 bg-surface-low p-lg">
+              <div className="flex flex-col justify-between gap-lg md:flex-row md:items-center">
+                <div>
+                  <h1 className="text-display">
+                    코인마다 임계치를 맞출 필요 없는 급등 알림
+                  </h1>
+                  <p className="mt-xs text-body-sm text-on-surface-variant">
+                    감시할 코인을 채널로 묶고 민감도만 정하면, 종목별 평소
+                    거래량에 맞춰 자동으로 보정됩니다.
+                  </p>
+                </div>
 
-      {view.kind === "list" ? (
-        <>
-          <GuestNotice signedIn={signedIn} />
-          <NotificationNotice
-            state={notification.state}
-            onRequest={notification.request}
-            hasChannels={channels.length > 0}
-          />
+                {signedIn ? null : (
+                  <div className="flex shrink-0 items-start gap-md rounded-lg border border-primary/20 bg-primary/10 p-md">
+                    <span className="mt-0.5 text-primary">
+                      <Icon name="info" size={18} />
+                    </span>
+                    <div>
+                      <p className="label text-primary">게스트</p>
+                      <p className="mt-xs text-body-sm">
+                        채널은 이 탭이 열려 있는 동안 유지됩니다.
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </section>
 
-          <section className="mt-8">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-medium">
-                내 채널{channels.length > 0 ? ` (${channels.length})` : ""}
-              </h2>
+            <NotificationNotice
+              state={notification.state}
+              onRequest={notification.request}
+              hasChannels={channels.length > 0}
+            />
+
+            <div className="flex items-end justify-between border-b border-white/5 pb-md">
+              <div>
+                <h2 className="text-headline">
+                  내 채널{channels.length > 0 ? ` (${channels.length})` : ""}
+                </h2>
+                <p className="mt-xs text-body-sm text-on-surface-variant">
+                  감시 중인 목록입니다
+                </p>
+              </div>
+
               <button
                 type="button"
                 onClick={() => setView({ kind: "create" })}
-                className="rounded-lg bg-flare-accent px-3 py-1.5 text-sm font-medium text-flare-bg hover:opacity-90"
+                className="flex shrink-0 items-center gap-xs rounded-lg bg-primary-container px-lg py-md font-bold text-on-primary-container transition-all hover:brightness-110"
               >
-                + 채널 만들기
+                <Icon name="plus" size={18} />
+                채널 만들기
               </button>
             </div>
 
             {!loaded ? null : channels.length === 0 ? (
-              <div className="mt-4 rounded-xl border border-dashed border-flare-muted/25 p-8 text-center">
-                <p className="text-sm text-flare-muted">
-                  아직 채널이 없습니다.
-                </p>
-                <p className="mt-1 text-xs text-flare-muted/70">
+              <div className="card mx-auto flex max-w-md flex-col items-center rounded-xl border-dashed p-xl text-center">
+                <span className="mb-md flex h-16 w-16 items-center justify-center rounded-full bg-surface-high text-primary">
+                  <Icon name="chart" size={32} />
+                </span>
+                <h3 className="text-title">아직 채널이 없습니다</h3>
+                <p className="mb-lg mt-xs text-body-sm text-on-surface-variant">
                   코인 몇 개를 묶어 첫 채널을 만들어보세요.
                 </p>
+                <button
+                  type="button"
+                  onClick={() => setView({ kind: "create" })}
+                  className="rounded-lg border border-primary/30 bg-primary/10 px-lg py-sm font-bold text-primary transition-all hover:bg-primary/20"
+                >
+                  첫 채널 만들기
+                </button>
               </div>
             ) : (
-              <ul className="mt-4 space-y-3">
+              <ul className="grid grid-cols-1 gap-lg lg:grid-cols-2">
                 {channels.map((channel) => (
                   <ChannelCard
                     key={channel.id}
@@ -123,54 +165,37 @@ export function MainApp() {
                 ))}
               </ul>
             )}
-          </section>
-        </>
-      ) : (
-        <section className="mt-8">
-          <h2 className="text-lg font-semibold">
-            {view.kind === "create" ? "채널 만들기" : "채널 편집"}
-          </h2>
+          </>
+        ) : (
+          <ChannelForm
+            initial={view.kind === "edit" ? view.channel : undefined}
+            signedIn={signedIn}
+            onSave={(channel) => {
+              if (view.kind === "edit") {
+                update(channel);
+              } else {
+                add(channel);
+              }
+              setView({ kind: "list" });
+            }}
+            onCancel={() => setView({ kind: "list" })}
+          />
+        )}
+      </main>
 
-          <div className="mt-6">
-            <ChannelForm
-              initial={view.kind === "edit" ? view.channel : undefined}
-              signedIn={signedIn}
-              onSave={(channel) => {
-                if (view.kind === "edit") {
-                  update(channel);
-                } else {
-                  add(channel);
-                }
-                setView({ kind: "list" });
-              }}
-              onCancel={() => setView({ kind: "list" })}
-            />
-          </div>
-        </section>
-      )}
-
-      <footer className="mt-16 border-t border-flare-muted/15 pt-6 text-xs leading-relaxed text-flare-muted/60">
-        감지 엔진은 아직 연결되지 않았습니다. 지금은 채널을 만들고 설정을
-        확인하는 것까지 됩니다.
+      <footer className="border-t border-white/5 bg-sunken">
+        <div className="mx-auto w-full max-w-5xl px-md py-lg md:px-lg">
+          <span className="text-title font-bold">Flare Alert</span>
+          <p className="mt-xs text-body-sm text-on-surface-variant">
+            감지 엔진은 아직 연결되지 않았습니다. 지금은 채널을 만들고 설정을
+            확인하는 것까지 됩니다.
+          </p>
+        </div>
       </footer>
 
       {auth === null ? null : (
         <AuthDialog mode={auth} onClose={() => setAuth(null)} />
       )}
-    </div>
-  );
-}
-
-function GuestNotice({ signedIn }: { signedIn: boolean }) {
-  if (signedIn) {
-    return null;
-  }
-
-  return (
-    <div className="mt-6 rounded-lg border border-flare-muted/20 bg-flare-surface/60 p-3 text-xs leading-relaxed text-flare-muted">
-      로그인 없이 쓰는 중입니다. 만든 채널은 <b>이 탭이 열려 있는 동안</b>{" "}
-      유지되고, 브라우저를 닫으면 사라집니다. 알림도 브라우저로만 옵니다.
-      계정을 만들면 채널이 저장되고 텔레그램 알림을 쓸 수 있습니다.
     </div>
   );
 }
@@ -191,7 +216,7 @@ function NotificationNotice({
 
   if (state === "unsupported") {
     return (
-      <div className="mt-3 rounded-lg border border-flare-muted/20 p-3 text-xs text-flare-muted">
+      <div className="rounded-lg border border-white/5 bg-card p-md text-body-sm text-on-surface-variant">
         이 브라우저는 알림을 지원하지 않습니다. 크롬이나 엣지를 써주세요.
       </div>
     );
@@ -199,7 +224,7 @@ function NotificationNotice({
 
   if (state === "denied") {
     return (
-      <div className="mt-3 rounded-lg border border-red-500/30 bg-red-500/5 p-3 text-xs text-red-400">
+      <div className="rounded-lg border border-danger/30 bg-danger/5 p-md text-body-sm text-danger">
         알림이 차단되어 있습니다. 주소창 왼쪽 자물쇠 아이콘에서 이 사이트의
         알림을 허용해주세요.
       </div>
@@ -207,14 +232,14 @@ function NotificationNotice({
   }
 
   return (
-    <div className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-flare-accent/30 bg-flare-accent/5 p-3">
-      <p className="text-xs leading-relaxed text-flare-muted">
+    <div className="flex items-center justify-between gap-md rounded-lg border border-primary/30 bg-primary/5 p-md">
+      <p className="text-body-sm text-on-surface-variant">
         알림을 받으려면 브라우저 권한이 필요합니다.
       </p>
       <button
         type="button"
         onClick={onRequest}
-        className="shrink-0 rounded-lg bg-flare-accent px-3 py-1.5 text-xs font-medium text-flare-bg hover:opacity-90"
+        className="label shrink-0 rounded-lg bg-primary-container px-lg py-sm font-bold text-on-primary-container transition-all hover:opacity-90"
       >
         알림 켜기
       </button>

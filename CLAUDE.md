@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-_Last updated: 2026-07-28 20:58_
+_Last updated: 2026-07-29 01:48_
 
 ## Project Overview
 
@@ -19,6 +19,20 @@ _Last updated: 2026-07-28 20:58_
 - **apps/detector**: Node.js (ES modules) + TypeScript → Railway/Fly.io (Tokyo region)
 - **apps/backtest**: Offline parameter-tuning tool, never deployed
 - **packages/core**: Shared types, constants, and the statistical core
+
+## Design System (2026-07-29)
+
+**Design tokens** (`apps/web/src/app/globals.css` @theme):
+- **Colors** (Material 3 semantics): 6-layer backgrounds (sunken → surface → surface-low → card → surface-high → surface-highest); primary (#8ed5ff) for text/icons on dark backgrounds; primary-container (#38bdf8) for filled button backgrounds; state colors (danger, warm); outline shades for borders and dividers
+- **Spacing**: 5 steps (xs 4px, sm 8px, md 16px, lg 24px, xl 48px) in multiples of 4
+- **Typography**: 7 text styles (display, headline, title, body, body-sm, data, label) with paired line-height and letter-spacing
+- **Corners**: lg 0.5rem, xl 0.75rem
+- **Fonts**: Inter (variable) via `next/font` for UI text; JetBrains Mono (variable) for numerics (sensitivity, alert counts) to prevent layout shift when values change
+
+**Icons** (`apps/web/src/components/Icon.tsx`):
+- 14 inline SVG icons (plus, edit, trash, close, search, info, activity, chart, globe, send, mail, lock, arrow-right, bell)
+- No external font dependency; avoids loading delay and "more_vert" text flashing before font loads
+- Colors and weight follow `currentColor`
 
 ## Directory Structure
 
@@ -49,6 +63,7 @@ _Last updated: 2026-07-28 20:58_
 │           ├── ChannelForm.tsx            # Create/edit channel UI with coin selection + sensitivity slider
 │           ├── AuthDialog.tsx             # Login/signup modal (screen only, not functional yet)
 │           ├── SensitivitySlider.tsx      # Interactive sensitivity control with frame-standard tick marks
+│           ├── Icon.tsx                   # Inline SVG icons (14 icons, no external font dependency)
 │           └── lib/                       # UI utilities
 ├── packages/
 │   └── core/src/

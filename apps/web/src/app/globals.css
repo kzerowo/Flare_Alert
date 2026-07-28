@@ -1,19 +1,170 @@
 @import "tailwindcss";
 
+/*
+ * 디자인 토큰.
+ *
+ * Stitch로 뽑은 대시보드 시안에서 추출했다 (2026-07-29).
+ * 시안은 Tailwind v3 설정 형식이라 v4의 @theme으로 옮겼다.
+ *
+ * 색 이름은 Material 3 어휘를 따른다. "무엇에 쓰는 색인가"가 이름에
+ * 들어 있어서, 새 화면을 만들 때 고민이 줄어든다.
+ */
 @theme {
-  --color-flare-bg: #0b0d12;
-  --color-flare-surface: #141821;
+  /* --- 배경 계층 --- */
+  /* 아래로 갈수록 앞으로 나온다. 카드는 surface보다 밝다. */
+  --color-sunken: #0a0f12;
+  --color-surface: #0b0d12;
+  --color-surface-low: #171c20;
+  --color-card: #141821;
+  --color-surface-high: #252b2e;
+  --color-surface-highest: #303539;
 
+  /* --- 강조 --- */
   /*
-   * 강조색. 배경(#0b0d12) 대비 약 9:1이라 글자로 써도 읽히고,
-   * 이 색을 배경으로 깔고 #0b0d12 글자를 얹어도 같은 대비가 나온다.
-   * 버튼이 두 방향으로 다 쓰이므로 양쪽이 모두 성립해야 한다.
+   * 두 가지를 구분해서 쓴다.
+   * primary: 어두운 배경 위의 글자와 아이콘
+   * primary-container: 채워진 버튼의 배경. 그 위 글자는 on-primary-container
+   *
+   * 하나로 합치면 버튼 위 글자 대비가 무너지거나 본문 강조가 너무 튄다.
    */
-  --color-flare-accent: #38bdf8;
-  --color-flare-muted: #8b93a7;
+  --color-primary: #8ed5ff;
+  --color-primary-container: #38bdf8;
+  --color-on-primary-container: #004965;
+
+  /* --- 글자 --- */
+  --color-on-surface: #dee3e8;
+  --color-on-surface-variant: #bdc8d1;
+  --color-outline: #87929a;
+  --color-outline-variant: #3e484f;
+
+  /* --- 상태 --- */
+  --color-danger: #ffb4ab;
+  /* 보조 강조. 꺼진 채널이나 주의 표시에 쓴다. */
+  --color-warm: #ffb690;
+
+  /* --- 간격 --- */
+  /* 4의 배수로만 움직인다. xl만 48로 크게 띄어 섹션을 가른다. */
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 16px;
+  --spacing-lg: 24px;
+  --spacing-xl: 48px;
+
+  /* --- 모서리 --- */
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.75rem;
+
+  /* --- 글꼴 --- */
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  /*
+   * 숫자 전용. 민감도나 알림 수처럼 값이 바뀌는 자리에 쓴다.
+   * 고정폭이라 값이 바뀌어도 자리가 흔들리지 않는다.
+   */
+  --font-mono: var(--font-jetbrains), ui-monospace, monospace;
+
+  /* --- 글자 크기 --- */
+  --text-display: 32px;
+  --text-display--line-height: 40px;
+  --text-display--letter-spacing: -0.01em;
+  --text-display--font-weight: 600;
+
+  --text-headline: 24px;
+  --text-headline--line-height: 32px;
+  --text-headline--font-weight: 600;
+
+  --text-title: 18px;
+  --text-title--line-height: 24px;
+  --text-title--font-weight: 600;
+
+  --text-body: 16px;
+  --text-body--line-height: 24px;
+
+  --text-body-sm: 14px;
+  --text-body-sm--line-height: 20px;
+
+  --text-data: 14px;
+  --text-data--line-height: 20px;
+  --text-data--font-weight: 500;
+
+  /* 작은 대문자 라벨. 값 위에 붙여 무엇인지 알려준다. */
+  --text-label: 12px;
+  --text-label--line-height: 16px;
+  --text-label--letter-spacing: 0.05em;
+  --text-label--font-weight: 600;
 }
 
 body {
-  background-color: var(--color-flare-bg);
-  color: #e8eaf0;
+  background-color: var(--color-surface);
+  color: var(--color-on-surface);
+  -webkit-font-smoothing: antialiased;
+}
+
+/*
+ * 라벨은 언제나 대문자다. 한국어에는 대소문자가 없어 영향이 없고,
+ * 영문 라벨(BTC, ETH)만 정렬된다.
+ */
+.label {
+  font-size: var(--text-label);
+  line-height: var(--text-label--line-height);
+  letter-spacing: var(--text-label--letter-spacing);
+  font-weight: var(--text-label--font-weight);
+  text-transform: uppercase;
+  color: var(--color-on-surface-variant);
+}
+
+/* 카드와 패널. 배경을 살짝 비치게 두고 흰 테두리를 아주 옅게 얹는다. */
+.panel {
+  background: color-mix(in srgb, var(--color-card) 80%, transparent);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgb(255 255 255 / 0.05);
+}
+
+.card {
+  background: var(--color-card);
+  border: 1px solid rgb(255 255 255 / 0.05);
+}
+
+/*
+ * 슬라이더 손잡이.
+ * 브라우저마다 가상 요소 이름이 달라 따로 써야 한다. 하나만 쓰면
+ * 파이어폭스나 크롬 중 한쪽에서 기본 손잡이가 나온다.
+ */
+input[type="range"] {
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+}
+
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 9999px;
+  background: var(--color-sunken);
+}
+
+input[type="range"]::-moz-range-track {
+  height: 4px;
+  border-radius: 9999px;
+  background: var(--color-sunken);
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  margin-top: -6px;
+  border-radius: 50%;
+  background: var(--color-primary-container);
+  box-shadow: 0 0 10px rgb(56 189 248 / 0.5);
+  cursor: pointer;
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border: none;
+  border-radius: 50%;
+  background: var(--color-primary-container);
+  box-shadow: 0 0 10px rgb(56 189 248 / 0.5);
+  cursor: pointer;
 }

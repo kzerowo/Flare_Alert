@@ -14,6 +14,8 @@ import {
 } from "@flare-alert/core";
 import type { Timeframe } from "@flare-alert/core";
 
+import { Icon } from "./Icon";
+
 const FRAME_LABEL: Record<Timeframe, string> = {
   "1m": "1분봉",
   "5m": "5분봉",
@@ -26,12 +28,9 @@ const FRAME_LABEL: Record<Timeframe, string> = {
 /**
  * 사건 규모 눈금.
  *
- * 알림은 채널당 하나이고 기준은 민감도 하나뿐이다. 프레임은 판정 축이
- * 아니라 "이 민감도가 어느 정도인지" 알려주는 참고 라벨이다.
- *
- * 1분봉급 급등은 짧게 터지고 말아 신호가 약하므로 민감도를 높여야
- * 잡힌다(오른쪽). 1일봉급은 크고 오래 가서 신호가 강하므로 낮은
- * 민감도로도 잡힌다(왼쪽).
+ * 위치는 백테스트 실측값이고 간격이 고르지 않다. 시안은 여섯 개를 균등
+ * 배치했지만 그렇게 하면 라벨이 거짓말이 된다. 1분봉급 급등은 흔해서
+ * 오른쪽, 1일봉급은 드물어서 왼쪽에 와야 한다.
  */
 interface Marker {
   position: number;
@@ -51,7 +50,6 @@ function buildMarkers(): Marker[] {
     }
   }
 
-  // 라벨이 겹쳐 못 읽는 것을 막는다. 긴 프레임끼리는 위치가 가깝다.
   const sorted = [...byPosition.entries()].sort((a, b) => a[0] - b[0]);
   const merged: Marker[] = [];
 
@@ -76,18 +74,13 @@ function toTrackPercent(position: number): number {
  *
  * TIMEFRAMES는 짧은 것부터이고 눈금 위치는 그 반대로 감소한다.
  * 그러므로 조건을 만족하는 첫 항목이 곧 가장 작은 규모다.
- * 마지막 항목을 잡으면 언제나 1일봉이 나온다.
  */
 function scaleAt(position: number): Timeframe | null {
   for (const timeframe of TIMEFRAMES) {
-    const markerPosition = percentileToSlider(
-      FRAME_SCALE_PERCENTILE[timeframe],
-    );
-    if (markerPosition <= position) {
+    if (percentileToSlider(FRAME_SCALE_PERCENTILE[timeframe]) <= position) {
       return timeframe;
     }
   }
-
   return null;
 }
 
@@ -108,80 +101,92 @@ export function SensitivitySlider({ value, onChange, symbolCount = 1 }: Props) {
   const caught = scaleAt(position);
 
   return (
-    <div className="w-full max-w-xl">
-      <div className="mb-1 flex items-baseline justify-between">
-        <label htmlFor="sensitivity" className="text-sm font-medium">
+    <section className="space-y-md">
+      <div className="flex items-end justify-between">
+        <label htmlFor="sensitivity" className="label">
           민감도
         </label>
-        <span className="text-lg font-semibold tabular-nums text-flare-accent">
+        <span className="font-mono text-headline text-primary">
           {position}%
         </span>
       </div>
 
-      <div className="relative h-9">
-        {markers.map((marker) => (
-          <div
-            key={marker.position}
-            className="absolute flex -translate-x-1/2 flex-col items-center"
-            style={{ left: `${toTrackPercent(marker.position)}%` }}
-          >
-            <span className="whitespace-nowrap text-[11px] text-flare-muted">
-              {marker.timeframes.join("·")}
-            </span>
-            <span className="mt-0.5 h-2 w-px bg-flare-muted/50" />
-          </div>
-        ))}
+      <div className="px-sm">
+        {/* 규모 눈금. 간격이 고르지 않은 것이 정상이다. */}
+        <div className="relative h-8">
+          {markers.map((marker) => {
+            const active = marker.position <= position;
+            return (
+              <div
+                key={marker.position}
+                className="absolute flex -translate-x-1/2 flex-col items-center"
+                style={{ left: `${toTrackPercent(marker.position)}%` }}
+              >
+                <span
+                  className={`whitespace-nowrap font-mono text-[11px] ${
+                    active ? "font-bold text-primary" : "text-outline"
+                  }`}
+                >
+                  {marker.timeframes.join("·")}
+                </span>
+                <span
+                  className={`mt-0.5 h-2 w-px ${
+                    active ? "bg-primary/60" : "bg-outline/40"
+                  }`}
+                />
+              </div>
+            );
+          })}
+        </div>
+
+        <input
+          id="sensitivity"
+          type="range"
+          min={SLIDER_MIN}
+          max={SLIDER_MAX}
+          step={1}
+          value={position}
+          onChange={(event) =>
+            onChange(sliderToPercentile(Number(event.target.value)))
+          }
+          className="w-full"
+        />
+
+        <div className="mt-sm flex justify-between">
+          <span className="label">조용히</span>
+          <span className="label">자주</span>
+        </div>
       </div>
 
-      <input
-        id="sensitivity"
-        type="range"
-        min={SLIDER_MIN}
-        max={SLIDER_MAX}
-        step={1}
-        value={position}
-        onChange={(event) =>
-          onChange(sliderToPercentile(Number(event.target.value)))
-        }
-        className="w-full accent-flare-accent"
-      />
-
-      <div className="mt-1 flex justify-between text-xs text-flare-muted">
-        <span>조용히</span>
-        <span>자주</span>
+      {/* 요약 */}
+      <div className="flex items-start gap-md rounded-xl border border-primary/20 bg-primary/5 p-md">
+        <span className="mt-0.5 shrink-0 text-primary">
+          <Icon name="chart" size={20} />
+        </span>
+        <div className="space-y-xs">
+          <h4 className="text-title text-primary">이 설정이면</h4>
+          {caught === null ? (
+            <p className="text-body-sm">가장 큰 급등에만 알림이 옵니다.</p>
+          ) : (
+            <p className="text-body-sm">
+              <b>{FRAME_LABEL[caught]}</b> 차트에서 눈에 띌 규모의 급등부터
+              알림이 옵니다.
+            </p>
+          )}
+          <p className="text-body-sm text-on-surface-variant">
+            {symbolCount > 1
+              ? `코인 ${symbolCount}개 합쳐 ${formatAlertsPerDay(perDay)} 정도 (개당 ${formatAlertsPerDay(perCoin)})`
+              : `코인 1개당 ${formatAlertsPerDay(perCoin)} 정도`}
+          </p>
+        </div>
       </div>
 
-      <div className="mt-6 rounded-lg border border-flare-muted/20 p-4">
-        {caught === null ? (
-          <p className="text-sm text-flare-muted">
-            가장 큰 급등에만 알림이 옵니다.
-          </p>
-        ) : (
-          <p className="text-sm">
-            <b className="text-flare-accent">{FRAME_LABEL[caught]}</b> 차트에서
-            눈에 띌 규모의 급등부터 알림이 옵니다.
-          </p>
-        )}
-
-        {symbolCount > 1 ? (
-          <p className="mt-2 text-sm text-flare-muted">
-            코인 {symbolCount}개 합쳐 {formatAlertsPerDay(perDay)} 정도
-            (개당 {formatAlertsPerDay(perCoin)}).
-          </p>
-        ) : (
-          <p className="mt-2 text-sm text-flare-muted">
-            코인 1개당 {formatAlertsPerDay(perCoin)} 정도. 코인을 여러 개 넣으면
-            그만큼 늘어납니다.
-          </p>
-        )}
-      </div>
-
-      <p className="mt-3 text-xs leading-relaxed text-flare-muted/70">
+      <p className="text-[11px] leading-relaxed text-outline">
         눈금은 민감도의 세기를 가늠하기 위한 참고입니다. 알림 기준은 민감도
-        하나뿐이며, 봉마다 따로 울리지 않고 채널당 하나로 나갑니다.
-        수치는 바이낸스 6종목 백테스트(2026년 4~6월) 평균이라, 대형 종목일수록
-        더 자주 울립니다.
+        하나뿐이며, 봉마다 따로 울리지 않고 채널당 하나로 나갑니다. 수치는
+        바이낸스 6종목 백테스트(2026년 4~6월) 평균이라 대형 종목일수록 더 자주
+        울립니다.
       </p>
-    </div>
+    </section>
   );
 }

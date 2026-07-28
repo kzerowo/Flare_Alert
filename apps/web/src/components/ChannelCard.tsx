@@ -5,10 +5,11 @@ import {
   TIMEFRAMES,
   displaySymbol,
   estimateAlertsPerDay,
-  formatAlertsPerDay,
   percentileToSlider,
 } from "@flare-alert/core";
 import type { Channel, Timeframe } from "@flare-alert/core";
+
+import { Icon } from "./Icon";
 
 const FRAME_LABEL: Record<Timeframe, string> = {
   "1m": "1분봉급",
@@ -17,6 +18,26 @@ const FRAME_LABEL: Record<Timeframe, string> = {
   "1h": "1시간봉급",
   "4h": "4시간봉급",
   "1d": "1일봉급",
+};
+
+/**
+ * 코인 상징색.
+ *
+ * 시안은 코인 로고 이미지를 외부 CDN에서 불러오지만, 종목이 늘어날 때마다
+ * 이미지를 구해야 하고 로드 실패도 처리해야 한다. 잘 알려진 몇 개만
+ * 색 점으로 두고 나머지는 기본색을 쓴다.
+ */
+const SYMBOL_COLOR: Record<string, string> = {
+  BTC: "#f7931a",
+  ETH: "#627eea",
+  SOL: "#14f195",
+  XRP: "#23292f",
+  BNB: "#f3ba2f",
+  DOGE: "#c2a633",
+  ADA: "#0033ad",
+  LINK: "#2a5ada",
+  DOT: "#e6007a",
+  AVAX: "#e84142",
 };
 
 /** 이 민감도가 잡아내는 가장 작은 규모. 슬라이더와 같은 규칙이다. */
@@ -45,59 +66,136 @@ export function ChannelCard({ channel, onEdit, onRemove, onToggle }: Props) {
 
   return (
     <li
-      className={
-        channel.enabled
-          ? "rounded-xl border border-flare-muted/20 bg-flare-surface p-4"
-          : "rounded-xl border border-flare-muted/10 bg-flare-surface/50 p-4 opacity-60"
-      }
+      className={`card flex flex-col overflow-hidden rounded-xl ${
+        channel.enabled ? "" : "opacity-60"
+      }`}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h3 className="truncate font-medium">{channel.name}</h3>
-          <p className="mt-1 truncate text-sm text-flare-muted">
-            {channel.symbols.length === 0
-              ? "코인 없음"
-              : channel.symbols.map((s) => displaySymbol(s.symbol)).join(", ")}
-          </p>
+      {/* 머리 */}
+      <div className="flex items-center justify-between bg-white/5 p-md">
+        <div className="flex min-w-0 items-center gap-sm">
+          <span
+            className={channel.enabled ? "text-primary" : "text-outline"}
+            aria-hidden="true"
+          >
+            <Icon name="activity" size={20} />
+          </span>
+          <h3 className="truncate text-title font-semibold">{channel.name}</h3>
+        </div>
+      </div>
+
+      {/* 몸통 */}
+      <div className="grid flex-grow grid-cols-1 gap-md p-md md:grid-cols-2">
+        <div className="space-y-md">
+          <div>
+            <p className="label mb-xs">감시 코인</p>
+            {channel.symbols.length === 0 ? (
+              <p className="text-body-sm text-outline">없음</p>
+            ) : (
+              <div className="flex flex-wrap gap-xs">
+                {channel.symbols.map((ref) => {
+                  const name = displaySymbol(ref.symbol);
+                  return (
+                    <span
+                      key={ref.symbol}
+                      className="flex items-center gap-xs rounded border border-white/10 bg-surface-highest px-sm py-1"
+                    >
+                      <span
+                        className="h-3 w-3 rounded-full"
+                        style={{
+                          backgroundColor: SYMBOL_COLOR[name] ?? "#4b5563",
+                        }}
+                      />
+                      <span className="font-mono text-data">{name}</span>
+                    </span>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          <div className="flex justify-between">
+            <div>
+              <p className="label">민감도</p>
+              <p className="font-mono text-headline text-primary">
+                {position}%
+              </p>
+            </div>
+            <div className="text-right">
+              <p className="label">하루 알림</p>
+              <p className="font-mono text-headline">
+                {perDay < 1 ? perDay.toFixed(1) : Math.round(perDay)}
+              </p>
+            </div>
+          </div>
         </div>
 
-        <label className="flex shrink-0 cursor-pointer items-center gap-2 text-xs text-flare-muted">
-          <input
-            type="checkbox"
-            checked={channel.enabled}
-            onChange={onToggle}
-            className="accent-flare-accent"
-          />
-          {channel.enabled ? "켜짐" : "꺼짐"}
-        </label>
+        <div className="space-y-md border-t border-white/5 pt-md md:border-l md:border-t-0 md:pl-md md:pt-0">
+          <div>
+            <p className="label mb-xs">잡는 규모</p>
+            <p className="text-body-sm">
+              {scale === null
+                ? "가장 큰 급등만"
+                : `${FRAME_LABEL[scale]} 이상`}
+            </p>
+          </div>
+
+          <div>
+            <p className="label mb-xs">알림 방법</p>
+            <div className="flex flex-wrap gap-xs">
+              {channel.delivery.map((method) => (
+                <span
+                  key={method}
+                  className="label inline-flex items-center gap-xs rounded border border-primary/20 bg-primary/10 px-sm py-xs text-primary"
+                >
+                  <Icon name={method === "browser" ? "globe" : "send"} size={14} />
+                  {method === "browser" ? "브라우저" : "텔레그램"}
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-flare-muted">
-        <span className="text-flare-accent">민감도 {position}%</span>
-        {scale === null ? null : <span>{FRAME_LABEL[scale]} 이상</span>}
-        <span>약 {formatAlertsPerDay(perDay)}</span>
-        <span>
-          {channel.delivery
-            .map((m) => (m === "browser" ? "브라우저" : "텔레그램"))
-            .join(" + ")}
-        </span>
-      </div>
+      {/* 발 */}
+      <div className="flex items-center justify-between border-t border-white/5 bg-white/[0.02] p-md">
+        <div className="flex gap-md">
+          <button
+            type="button"
+            onClick={onEdit}
+            className="flex items-center gap-xs text-body-sm text-on-surface-variant transition-colors hover:text-primary"
+          >
+            <Icon name="edit" size={16} />
+            편집
+          </button>
+          <button
+            type="button"
+            onClick={onRemove}
+            className="flex items-center gap-xs text-body-sm text-on-surface-variant transition-colors hover:text-danger"
+          >
+            <Icon name="trash" size={16} />
+            삭제
+          </button>
+        </div>
 
-      <div className="mt-4 flex gap-2">
-        <button
-          type="button"
-          onClick={onEdit}
-          className="rounded-lg border border-flare-muted/30 px-3 py-1.5 text-xs text-flare-muted hover:border-flare-muted/60"
-        >
-          편집
-        </button>
-        <button
-          type="button"
-          onClick={onRemove}
-          className="rounded-lg border border-flare-muted/20 px-3 py-1.5 text-xs text-flare-muted hover:border-red-500/50 hover:text-red-400"
-        >
-          삭제
-        </button>
+        <div className="flex items-center gap-md">
+          <span
+            className={`label ${channel.enabled ? "text-primary" : "text-outline"}`}
+          >
+            {channel.enabled ? "감시 중" : "꺼짐"}
+          </span>
+
+          {/* 토글 스위치 */}
+          <label className="relative inline-flex cursor-pointer items-center">
+            <input
+              type="checkbox"
+              checked={channel.enabled}
+              onChange={onToggle}
+              className="peer sr-only"
+              aria-label={`${channel.name} 켜고 끄기`}
+            />
+            <span className="h-5 w-9 rounded-full bg-surface-highest after:absolute after:left-[2px] after:top-[2px] after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-all peer-checked:bg-primary-container peer-checked:after:translate-x-full" />
+          </label>
+        </div>
       </div>
     </li>
   );
