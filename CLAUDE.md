@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-_Last updated: 2026-07-29 19:32_
+_Last updated: 2026-07-29 21:06_
 
 ## Project Overview
 
@@ -523,7 +523,7 @@ A noise-picking algorithm would sit flat near 1.0x at every threshold. It doesn'
 2. **The signal is short-lived.** Lift decays monotonically with horizon; BTC at the old default was 1.06x at 60 minutes — indistinguishable from noise. Volume spikes predict immediate movement, not trends.
 3. **Median moves are small relative to fees.** BTC alerts moved 0.06% (median, 1 min) at the old default — under a round-trip taker fee. Value lives in the tail (31–42% of alerts land in the top decile of random moves), and in volatile alts where absolute moves are 0.5–2%.
 
-**Known confound, not yet controlled:** alerts cluster in active trading hours while the random baseline samples uniformly, including quiet hours. Part of the measured lift may be time-of-day rather than signal. **True lift is probably lower than the table above.** Fixing this means drawing baseline samples matched to the alert's hour-of-day.
+**Hour-of-day confound correction** (2026-07-29): Alerts cluster in active trading hours while the random baseline samples uniformly, including quiet hours. Part of the measured lift may be time-of-day rather than signal. New module `apps/backtest/src/hour-matched.ts` — `buildHourlyBaseline()` and `measureHourMatched()` — draws baseline samples matched to the alert's UTC hour. Compares hour-matched lift against naive (24-hour uniform) baseline to quantify the confound. **Measured at −9% at the 1-minute horizon** — the signal survives. See § Hour-of-Day Confound Correction.
 
 **Small caps are unmeasurable right now** — ANKR and ONE produced 22 and 20 alerts in 61 days. `MIN_QUOTE_VOLUME` is silencing them, so their apparently high lift (3–4x) rests on no sample.
 
@@ -564,9 +564,36 @@ This is the real finding: a single absolute floor is doing two unrelated jobs �
 
 **Also still open:** measuring small caps needs a different baseline. A 1-minute horizon on a coin that trades a few times an hour cannot produce a meaningful random comparison; a longer horizon or a trade-count-matched baseline would be needed.
 
+## Hour-of-Day Confound Correction (2026-07-29)
+
+**Problem**: Alerts cluster in active trading hours (roughly 13:00–23:00 UTC for major cryptos) while the quality baseline sampled uniformly across all 24 hours. Since prices naturally move more during active hours regardless of volume spikes, the measured lift included an unknown time-of-day contribution.
+
+**Method** (`apps/backtest/src/hour-matched.ts`):
+- `buildHourlyBaseline()` — divides 20,000 random samples into 24 UTC hour buckets and computes per-hour movement distributions (one distribution per hour per horizon)
+- `measureHourMatched()` — for each alert, identifies its UTC hour, measures its price movement, and compares against the *hour-matched* baseline rather than the 24-hour uniform one. Reports both hour-matched lift and naive (uniform) lift side-by-side.
+
+**Result — the confound is real but small.** Averaged across symbols at the default sensitivity:
+
+| Horizon | Uniform baseline | Hour-matched | Change |
+|---|---|---|---|
+| 1 min | 2.30x | **2.08x** | −9% |
+| 5 min | 1.66x | 1.66x | 0% |
+| 15 min | 1.44x | 1.48x | +3% |
+| 60 min | 1.39x | 1.28x | −8% |
+
+The earlier caveat — "true lift is probably lower than the table above" — was correct in direction but overstated in size. At most 9% of the measured lift was time-of-day, not the large inflation that was feared.
+
+**`SENSITIVITY_DEFAULT` survives, with less margin than believed.** Slider 26 was chosen as the loosest setting clearing a pre-registered 2x bar at the 1-minute horizon. Corrected, it sits at **2.08x** — over the bar, but barely. Loosening further would drop below 2x, so the default is now pinned tighter than the original 2.29x figure suggested.
+
+Per symbol at 1 minute (corrected): ETH 2.90x, BTC 2.08x, SOL 2.06x, **LINK 1.29x**. LINK was already the weak one before correction (1.19x). **The spread across symbols is far larger than the confound** — which matters more for the product than the confound does: the same setting buys very different quality on different coins.
+
+Estimator note: with a flat baseline, "median of per-alert ratios" and "ratio of medians" are identical because the divisor is constant, so the uncorrected column reproduces the original method exactly. The hour-matched column necessarily uses median-of-ratios since each alert has its own divisor.
+
+**Known limitation**: Does not control for weekday/weekend or major events (FOMC releases, etc.). Hour-of-day is the largest systematic bias in the sample distribution.
+
 ## Known Gaps & Next Steps
 
-1. **Alert quality — ✅ measured** (see above). New `quality.ts` backend supports any horizon and any symbol; currently reporting 1/5/15/60-second lift. Still open: the time-of-day confound, quality confirmation on 2–3 additional symbols, and hit-rate targets (10%+ above-random clicks would justify a product callout).
+1. **Alert quality — ✅ measured** (see above). New `quality.ts` backend supports any horizon and any symbol; currently reporting 1/5/15/60-second lift. **Hour-of-day confound — ✅ controlled**, −9% at 1 min, corrected default 2.08x (see § Hour-of-Day Confound Correction). Still open: quality confirmation on 2–3 additional symbols, and hit-rate targets (10%+ above-random clicks would justify a product callout).
 2. **`MIN_QUOTE_VOLUME` measurement** — ✅ infrastructure added (2026-07-29). New `turnover.ts` module measures alert lift in logarithmic quote-volume buckets (0–1K, 1K–5K, …, 5M+). Extraction no longer filters by this constant (set to 0 in `EXTRACT_MIN_QUOTE_VOLUME`), so the measurement can examine all volume tiers. Still to run: full backtest to determine optimal floor across all symbols.
 3. **Detector pipeline** — ✅ complete end-to-end (2026-07-29):
    - ✅ Ingestion, aggregation, scoring, percentile, filters, cooldown/merge, scale

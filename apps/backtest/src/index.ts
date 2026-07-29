@@ -24,6 +24,7 @@ import { measureChannelCurve, measureScaleMarkers } from "./event-scale.js";
 import { loadManifest, loadPrices, loadSymbol, symbolsIn } from "./data.js";
 import { HORIZONS, buildBaseline, measureQuality } from "./quality.js";
 import { measureTurnover } from "./turnover.js";
+import { buildHourlyBaseline, measureHourMatched } from "./hour-matched.js";
 import type { Baseline } from "./quality.js";
 import { extractCrossings } from "./replay.js";
 
@@ -469,6 +470,117 @@ async function turnoverFloor(
   }
 }
 
+/**
+ * 시간대 교란을 보정한 품질 측정.
+ *
+ * 알림은 거래가 활발한 시간대에 몰리는데 기준선은 24시간 균등이었다.
+ * 활발한 시간대는 원래 더 움직이므로 배수의 일부가 신호가 아니라
+ * 시간대일 수 있었다. 같은 시각대끼리 비교해 얼마나 부풀려졌는지 본다.
+ */
+async function hourConfound(
+  dataDir: string,
+  streams: readonly CrossingStream[],
+  manifest: Awaited<ReturnType<typeof loadManifest>>,
+): Promise<void> {
+  console.log("");
+  console.log("═".repeat(76));
+  console.log("시간대 교란 보정 · 같은 UTC 시각대끼리 비교");
+  console.log("");
+  console.log("보정 전 = 24시간 균등 기준선 (기존 방식)");
+  console.log("보정 후 = 알림이 뜬 시각대의 기준선과만 비교");
+
+  const totals = HORIZONS.map(() => ({
+    matched: 0,
+    naive: 0,
+    n: 0,
+  }));
+
+  for (const stream of streams) {
+    const prices = await loadPrices(dataDir, stream.symbol, manifest);
+    const startAbsSecond = Math.floor(stream.startMs / 1000);
+    const warmupSeconds = WARMUP_DAYS * 86_400;
+
+    // 시각대별로 나누면 표본이 24분의 1이 된다. 전체를 늘려 시각대당
+    // 2,000개쯤 남게 한다.
+    const hourly = buildHourlyBaseline(
+      prices,
+      startAbsSecond,
+      warmupSeconds,
+      48_000,
+      20260729,
+    );
+    const flat = buildBaseline(prices, warmupSeconds, 20_000, 20260729);
+
+    const report = measureHourMatched(
+      stream,
+      prices,
+      hourly.baseline,
+      flat.baseline,
+      startAbsSecond,
+      {
+        sensitivity: SENSITIVITY_DEFAULT,
+        mergeWindowSeconds: FRAME_MERGE_WINDOW_SECONDS,
+        cooldownScale: 3,
+        tightening: TIGHTENING,
+      },
+    );
+
+    if (report.alertCount === 0) {
+      continue;
+    }
+
+    console.log("");
+    console.log(`── ${stream.symbol} (알림 ${report.alertCount}건)`);
+    console.log(
+      `   ${pad("지평", 8)}${padStart("보정 전", 10)}${padStart("보정 후", 10)}`,
+    );
+
+    for (let h = 0; h < report.perHorizon.length; h += 1) {
+      const row = report.perHorizon[h];
+      if (row === undefined) {
+        continue;
+      }
+      const label = `${row.horizonSeconds / 60}분`;
+      const naive = row.naiveLift === null ? "—" : `${row.naiveLift.toFixed(2)}x`;
+      const matched =
+        row.matchedLift === null ? "—" : `${row.matchedLift.toFixed(2)}x`;
+
+      console.log(
+        `   ${pad(label, 8)}${padStart(naive, 10)}${padStart(matched, 10)}`,
+      );
+
+      const total = totals[h];
+      if (total !== undefined && row.naiveLift !== null && row.matchedLift !== null) {
+        total.naive += row.naiveLift;
+        total.matched += row.matchedLift;
+        total.n += 1;
+      }
+    }
+  }
+
+  console.log("");
+  console.log("─".repeat(76));
+  console.log("전 종목 평균");
+  console.log(
+    `   ${pad("지평", 8)}${padStart("보정 전", 10)}${padStart("보정 후", 10)}${padStart("차이", 10)}`,
+  );
+
+  for (let h = 0; h < HORIZONS.length; h += 1) {
+    const total = totals[h];
+    const horizon = HORIZONS[h];
+    if (total === undefined || horizon === undefined || total.n === 0) {
+      continue;
+    }
+    const naive = total.naive / total.n;
+    const matched = total.matched / total.n;
+    const delta = ((matched / naive - 1) * 100).toFixed(0);
+
+    console.log(
+      `   ${pad(`${horizon / 60}분`, 8)}${padStart(`${naive.toFixed(2)}x`, 10)}${padStart(`${matched.toFixed(2)}x`, 10)}${padStart(`${delta}%`, 10)}`,
+    );
+  }
+}
+
 async function main(): Promise<void> {
   const here = path.dirname(fileURLToPath(import.meta.url));
   const dataDir = path.resolve(here, "../../../data/prepared");
@@ -492,6 +604,7 @@ async function main(): Promise<void> {
 
   await alertQuality(dataDir, streams, manifest);
   await turnoverFloor(dataDir, streams, manifest);
+  await hourConfound(dataDir, streams, manifest);
 }
 
 main().catch((error: unknown) => {
