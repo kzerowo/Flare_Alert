@@ -37,10 +37,11 @@ describe("sliderToPercentile", () => {
     assert.equal(sliderToPercentile(9999), SENSITIVITY_MIN);
   });
 
-  it("기본값이 15분봉급 눈금에 놓인다", () => {
+  it("기본값이 1시간봉급 눈금에 놓인다", () => {
+    // 품질 측정으로 정한 자리다. 근거는 constants.ts의 SENSITIVITY_DEFAULT 주석.
     assert.equal(
       percentileToSlider(SENSITIVITY_DEFAULT),
-      percentileToSlider(FRAME_SCALE_PERCENTILE["15m"]),
+      percentileToSlider(FRAME_SCALE_PERCENTILE["1h"]),
     );
   });
 });

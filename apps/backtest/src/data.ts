@@ -10,6 +10,8 @@ export interface PreparedEntry {
   rows: number;
   nonZeroSeconds: number;
   file: string;
+  /** 종가 파일. 알림 품질 측정에만 쓴다. */
+  priceFile?: string;
 }
 
 /** 한 종목의 전체 기간을 이어붙인 초 단위 거래대금 시계열. */
@@ -20,6 +22,63 @@ export interface SymbolSeries {
   /** 인덱스 i = startMs + i초 시점의 거래대금 */
   volumes: Float64Array;
   months: string[];
+}
+
+/**
+ * 한 종목의 초 단위 종가. volumes와 같은 인덱스를 쓴다.
+ *
+ * 거래량과 따로 읽는다. 파라미터 스윕은 가격이 필요 없는데, 같이 실으면
+ * 종목당 180MB를 늘 지고 가게 된다.
+ */
+export async function loadPrices(
+  dataDir: string,
+  symbol: string,
+  manifest: readonly PreparedEntry[],
+): Promise<Float32Array> {
+  const entries = manifest
+    .filter((e) => e.symbol === symbol)
+    .sort((a, b) => a.startMs - b.startMs);
+
+  if (entries.length === 0) {
+    throw new Error(`준비된 데이터가 없습니다: ${symbol}`);
+  }
+
+  let totalSeconds = 0;
+  for (const entry of entries) {
+    totalSeconds += entry.seconds;
+  }
+
+  const prices = new Float32Array(totalSeconds);
+  let offset = 0;
+
+  for (const entry of entries) {
+    if (entry.priceFile === undefined) {
+      throw new Error(
+        `${symbol} ${entry.month}: 가격 파일이 없습니다. ` +
+          `prepare:data를 다시 실행하세요.`,
+      );
+    }
+
+    const buffer = await readFile(path.join(dataDir, entry.priceFile));
+
+    // Buffer는 내부 풀에서 잘라낸 조각이라 byteOffset이 4의 배수가 아닐
+    // 수 있다. 그대로 Float32Array를 얹으면 정렬 제약에 걸린다.
+    const bytes = new Uint8Array(buffer.byteLength);
+    bytes.set(buffer);
+    const chunk = new Float32Array(bytes.buffer);
+
+    if (chunk.length !== entry.seconds) {
+      throw new Error(
+        `${symbol} ${entry.month}: 가격 길이가 맞지 않습니다 ` +
+          `(${chunk.length} vs ${entry.seconds})`,
+      );
+    }
+
+    prices.set(chunk, offset);
+    offset += entry.seconds;
+  }
+
+  return prices;
 }
 
 export async function loadManifest(dataDir: string): Promise<PreparedEntry[]> {

@@ -13,6 +13,8 @@ import { fileURLToPath } from "node:url";
 
 import { openZipEntryStream } from "./lib/zip.mjs";
 
+// kline CSV 컬럼: 0=open_time 1=open 2=high 3=low 4=close ... 7=quote_volume
+const CLOSE_COLUMN = 4;
 const QUOTE_VOLUME_COLUMN = 7;
 
 /** open_time이 마이크로초인지 밀리초인지 자동 판별한다. */
@@ -36,9 +38,9 @@ function monthBounds(month) {
 }
 
 /**
- * 한 줄에서 타임스탬프와 거래대금만 뽑는다.
+ * 한 줄에서 타임스탬프·종가·거래대금을 뽑는다.
  * split(",")으로 12개 문자열을 만들면 4700만 줄에서 그 비용이 그대로
- * 쌓이므로, 필요한 두 컬럼까지만 인덱스로 훑는다.
+ * 쌓이므로, 필요한 컬럼까지만 인덱스로 훑는다.
  */
 function parseLine(line) {
   const firstComma = line.indexOf(",");
@@ -53,12 +55,18 @@ function parseLine(line) {
 
   let cursor = firstComma;
   let column = 1;
+  let close = Number.NaN;
 
+  // 루프 진입 시 cursor는 column 바로 앞의 쉼표를 가리킨다.
   while (column < QUOTE_VOLUME_COLUMN) {
-    cursor = line.indexOf(",", cursor + 1);
-    if (cursor < 0) {
+    const next = line.indexOf(",", cursor + 1);
+    if (next < 0) {
       return null;
     }
+    if (column === CLOSE_COLUMN) {
+      close = Number(line.slice(cursor + 1, next));
+    }
+    cursor = next;
     column += 1;
   }
 
@@ -75,7 +83,11 @@ function parseLine(line) {
     return null;
   }
 
-  return { timestamp, quoteVolume };
+  if (!Number.isFinite(close) || close <= 0) {
+    return null;
+  }
+
+  return { timestamp, close, quoteVolume };
 }
 
 async function prepareOne(zipPath, outputDir) {
@@ -90,6 +102,10 @@ async function prepareOne(zipPath, outputDir) {
   const bounds = monthBounds(month);
 
   const volumes = new Float64Array(bounds.seconds);
+  // 가격은 Float32로 충분하다. 유효숫자 7자리라 BTC(1e5)든 SHIB(1e-5)든
+  // 상대 정밀도가 1e-7 수준인데, 우리가 재는 이동폭은 1e-3 이상이다.
+  // Float64로 두면 파일만 두 배가 된다.
+  const prices = new Float32Array(bounds.seconds);
 
   const { stream } = await openZipEntryStream(zipPath);
   const reader = createInterface({ input: stream, crlfDelay: Infinity });
@@ -119,11 +135,36 @@ async function prepareOne(zipPath, outputDir) {
     }
 
     volumes[index] = parsed.quoteVolume;
+    prices[index] = parsed.close;
     rows += 1;
+  }
+
+  /*
+   * 체결이 없던 초를 직전 가격으로 메운다.
+   *
+   * 거래량은 없으면 0이 맞다. 가격은 아니다 — 0으로 두면 그 초를 기준으로
+   * 수익률을 계산할 때 -100%나 무한대가 나온다. 체결이 없었다는 건 값이
+   * 0이 됐다는 뜻이 아니라 직전 값 그대로라는 뜻이다.
+   *
+   * 첫 체결 이전 구간은 채울 값이 없으므로 0으로 남긴다. 읽는 쪽에서
+   * 0을 "가격 없음"으로 보고 건너뛴다.
+   */
+  let carried = 0;
+  let filled = 0;
+  for (let i = 0; i < prices.length; i += 1) {
+    if (prices[i] > 0) {
+      carried = prices[i];
+    } else if (carried > 0) {
+      prices[i] = carried;
+      filled += 1;
+    }
   }
 
   const binPath = path.join(outputDir, `${symbol}-${month}.bin`);
   await writeFile(binPath, Buffer.from(volumes.buffer));
+
+  const priceBinPath = path.join(outputDir, `${symbol}-${month}.price.bin`);
+  await writeFile(priceBinPath, Buffer.from(prices.buffer));
 
   const nonZero = volumes.reduce((count, v) => (v > 0 ? count + 1 : count), 0);
   const coverage = ((rows / bounds.seconds) * 100).toFixed(1);
@@ -131,6 +172,7 @@ async function prepareOne(zipPath, outputDir) {
 
   console.log(
     `  ${symbol} ${month}: ${rows.toLocaleString()}행 (커버리지 ${coverage}%, 거래발생 ${activity}%)` +
+      (filled > 0 ? `, 가격보간 ${filled.toLocaleString()}` : "") +
       (skipped > 0 ? `, 건너뜀 ${skipped}` : "") +
       (outOfRange > 0 ? `, 범위밖 ${outOfRange}` : ""),
   );
@@ -143,6 +185,7 @@ async function prepareOne(zipPath, outputDir) {
     rows,
     nonZeroSeconds: nonZero,
     file: path.basename(binPath),
+    priceFile: path.basename(priceBinPath),
   };
 }
 

@@ -22,6 +22,27 @@ export interface EngineConfig {
    * "1분봉 기준으로는 어느 민감도가 적당한가"를 알려면 프레임을 격리해야 한다.
    */
   onlyFrame?: number;
+
+  /**
+   * 알림이 실제로 나갈 때마다 부른다.
+   *
+   * 개수만 필요한 스윕에서는 넘기지 않는다. 조합마다 수천 개의 객체를
+   * 만들어 버리기 때문이다. 알림 품질 측정처럼 시각이 필요할 때만 쓴다.
+   *
+   * second는 stream.startMs 기준 초 오프셋이라, 같은 종목의 가격 배열을
+   * 그대로 이 값으로 인덱싱할 수 있다.
+   */
+  onAlert?: (alert: EmittedAlert) => void;
+}
+
+/** 실제로 나간 알림 하나. */
+export interface EmittedAlert {
+  /** stream.startMs 기준 초 오프셋 */
+  second: number;
+  /** 판정을 통과한 신호 중 가장 높은 백분위 */
+  percentile: number;
+  /** 그 신호를 낸 프레임 */
+  frame: Timeframe;
 }
 
 export interface EngineResult {
@@ -186,6 +207,14 @@ export function evaluate(
     const primary = TIMEFRAMES[bestFrame];
     if (primary !== undefined) {
       byPrimaryFrame[primary] += 1;
+
+      if (config.onAlert !== undefined) {
+        config.onAlert({
+          second,
+          percentile: bestPercentile,
+          frame: primary,
+        });
+      }
     }
 
     alerts += 1;
