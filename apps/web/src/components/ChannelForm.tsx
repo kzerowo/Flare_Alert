@@ -4,7 +4,6 @@ import { useMemo, useState } from "react";
 
 import {
   MAX_CHANNEL_NAME_LENGTH,
-  MAX_SYMBOLS_PER_CHANNEL,
   POPULAR_BINANCE_SYMBOLS,
   createChannel,
   displaySymbol,
@@ -14,21 +13,9 @@ import {
 import type { Channel, DeliveryMethod } from "@flare-alert/core";
 
 import { formatProblem, useT } from "@/lib/i18n";
+import { CoinIcon } from "./CoinIcon";
 import { Icon } from "./Icon";
 import { SensitivitySlider } from "./SensitivitySlider";
-
-const SYMBOL_COLOR: Record<string, string> = {
-  BTC: "#f7931a",
-  ETH: "#627eea",
-  SOL: "#14f195",
-  XRP: "#23292f",
-  BNB: "#f3ba2f",
-  DOGE: "#c2a633",
-  ADA: "#0033ad",
-  LINK: "#2a5ada",
-  DOT: "#e6007a",
-  AVAX: "#e84142",
-};
 
 interface Props {
   /**
@@ -54,10 +41,7 @@ export function ChannelForm({ initial, signedIn, onSave, onCancel }: Props) {
   const [query, setQuery] = useState("");
   const [showProblems, setShowProblems] = useState(false);
 
-  const selected = useMemo(
-    () => new Set(draft.symbols.map((s) => s.symbol)),
-    [draft.symbols],
-  );
+  const selected = draft.symbol?.symbol ?? null;
 
   const matches = useMemo(() => {
     const needle = query.trim().toUpperCase();
@@ -69,22 +53,13 @@ export function ChannelForm({ initial, signedIn, onSave, onCancel }: Props) {
 
   const problems = validateChannel(draft);
 
-  function toggleSymbol(symbol: string): void {
-    setDraft((previous) => {
-      if (selected.has(symbol)) {
-        return {
-          ...previous,
-          symbols: previous.symbols.filter((s) => s.symbol !== symbol),
-        };
-      }
-      if (previous.symbols.length >= MAX_SYMBOLS_PER_CHANNEL) {
-        return previous;
-      }
-      return {
-        ...previous,
-        symbols: [...previous.symbols, toBinanceSymbol(symbol)],
-      };
-    });
+  /**
+   * 채널당 하나만 감시한다. 이미 고른 것을 다시 누르면 해제가 아니라
+   * 그대로 둔다 — 저장할 수 없는 빈 상태로 되돌리는 조작을 굳이 만들
+   * 이유가 없고, 다른 코인을 누르면 어차피 바뀐다.
+   */
+  function pickSymbol(symbol: string): void {
+    setDraft((previous) => ({ ...previous, symbol: toBinanceSymbol(symbol) }));
   }
 
   function toggleDelivery(method: DeliveryMethod): void {
@@ -143,8 +118,8 @@ export function ChannelForm({ initial, signedIn, onSave, onCancel }: Props) {
             <span className="label text-on-surface-variant">
               {t.form.symbolsLabel}
             </span>
-            <span className="font-mono text-data text-primary">
-              {t.form.symbolsSelected(draft.symbols.length)}
+            <span className="text-body-sm text-outline">
+              {t.form.symbolPickHint}
             </span>
           </div>
 
@@ -161,32 +136,38 @@ export function ChannelForm({ initial, signedIn, onSave, onCancel }: Props) {
             />
           </div>
 
-          <div className="flex max-h-56 flex-wrap gap-2 overflow-y-auto">
+          {/*
+            라디오 그룹으로 알린다. 생김새는 버튼이지만 "여럿 중 하나"라는
+            성질은 스크린 리더에도 전해져야 한다.
+          */}
+          <div
+            role="radiogroup"
+            aria-label={t.form.symbolsLabel}
+            className="flex max-h-56 flex-wrap gap-2 overflow-y-auto"
+          >
             {matches.length === 0 ? (
               <p className="text-body-sm text-outline">{t.form.noMatches}</p>
             ) : (
               matches.map((symbol) => {
-                const name = displaySymbol(symbol);
-                const on = selected.has(symbol);
+                const on = selected === symbol;
                 return (
                   <button
                     key={symbol}
                     type="button"
-                    onClick={() => toggleSymbol(symbol)}
+                    role="radio"
+                    aria-checked={on}
+                    onClick={() => pickSymbol(symbol)}
                     className={`flex items-center gap-1 rounded-full px-4 py-2 transition-all ${
                       on
                         ? "border-2 border-primary bg-card"
                         : "border border-white/10 bg-surface hover:border-primary/50"
                     }`}
                   >
-                    <span
-                      className="h-3 w-3 rounded-full"
-                      style={{ backgroundColor: SYMBOL_COLOR[name] ?? "#4b5563" }}
-                    />
+                    <CoinIcon symbol={symbol} size={16} />
                     <span
                       className={`label ${on ? "text-on-surface" : "text-on-surface-variant"}`}
                     >
-                      {name}
+                      {displaySymbol(symbol)}
                     </span>
                   </button>
                 );
@@ -200,7 +181,6 @@ export function ChannelForm({ initial, signedIn, onSave, onCancel }: Props) {
           onChange={(sensitivity) =>
             setDraft((previous) => ({ ...previous, sensitivity }))
           }
-          symbolCount={draft.symbols.length}
         />
 
         {/* 전달 수단 */}
@@ -261,7 +241,6 @@ export function ChannelForm({ initial, signedIn, onSave, onCancel }: Props) {
                 ·{" "}
                 {formatProblem(t, problem, {
                   maxNameLength: MAX_CHANNEL_NAME_LENGTH,
-                  maxSymbols: MAX_SYMBOLS_PER_CHANNEL,
                 })}
               </li>
             ))}

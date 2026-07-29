@@ -2,49 +2,32 @@ import { SENSITIVITY_DEFAULT, TIMEFRAMES } from "./constants.js";
 import type { Channel, DeliveryMethod, SymbolRef } from "./types.js";
 
 /**
- * 코인 선택 목록.
+ * 코인 선택 목록. 바이낸스 시가총액 순위 기준.
  *
- * 바이낸스 USDT 마켓에서 거래가 활발한 종목들이다. 거래소 전체 목록을
- * 실시간으로 받아오는 편이 정확하지만, 그러려면 API 호출과 실패 처리가
- * 붙는다. 채널 UI를 먼저 세우는 단계라 고정 목록으로 시작한다.
+ * 전부 바이낸스 USDT 마켓에서 실제로 거래 중인(status TRADING) 종목이다.
+ * detector가 바이낸스 WebSocket에 붙는 구조라, 거기 없는 종목은 화면에
+ * 보여줘도 감시가 되지 않는다. 목록을 늘릴 때는 상장 여부를 먼저 확인한다.
+ * (2026-07-29 기준 XMR은 상장폐지로 BREAK, HYPE는 현물 미상장이라 제외됨)
+ *
+ * 아이콘은 apps/web/public/coins/ 에 심볼 소문자 이름으로 들어 있다.
+ * 여기에 종목을 추가하면 아이콘도 같이 넣어야 한다. 없으면 색 점으로
+ * 대체되므로 화면이 깨지지는 않는다.
  */
 export const POPULAR_BINANCE_SYMBOLS: readonly string[] = [
   "BTCUSDT",
   "ETHUSDT",
-  "SOLUSDT",
-  "XRPUSDT",
   "BNBUSDT",
-  "DOGEUSDT",
-  "ADAUSDT",
+  "XRPUSDT",
+  "SOLUSDT",
   "TRXUSDT",
-  "AVAXUSDT",
+  "DOGEUSDT",
+  "XLMUSDT",
+  "ZECUSDT",
+  "WBTCUSDT",
+  "WBETHUSDT",
   "LINKUSDT",
-  "DOTUSDT",
-  "MATICUSDT",
-  "LTCUSDT",
-  "SHIBUSDT",
-  "UNIUSDT",
-  "ATOMUSDT",
-  "ETCUSDT",
-  "APTUSDT",
-  "ARBUSDT",
-  "OPUSDT",
-  "FILUSDT",
-  "NEARUSDT",
-  "INJUSDT",
-  "SUIUSDT",
-  "SEIUSDT",
-  "TIAUSDT",
-  "PEPEUSDT",
-  "WIFUSDT",
-  "ANKRUSDT",
-  "ONEUSDT",
-  "CHZUSDT",
-  "SANDUSDT",
+  "ADAUSDT",
 ];
-
-/** 채널 하나에 넣을 수 있는 코인 수. */
-export const MAX_SYMBOLS_PER_CHANNEL = 20;
 
 /** 채널 이름 길이 제한. */
 export const MAX_CHANNEL_NAME_LENGTH = 24;
@@ -80,7 +63,7 @@ export function createChannel(overrides: Partial<Channel> = {}): Channel {
     id: `ch_${Date.now().toString(36)}_${counter.toString(36)}`,
     name: "",
     enabled: true,
-    symbols: [],
+    symbol: null,
     sensitivity: SENSITIVITY_DEFAULT,
     timeframes: [...TIMEFRAMES],
     delivery: ["browser"],
@@ -91,8 +74,7 @@ export function createChannel(overrides: Partial<Channel> = {}): Channel {
 export type ChannelProblem =
   | "empty_name"
   | "name_too_long"
-  | "no_symbols"
-  | "too_many_symbols"
+  | "no_symbol"
   | "no_delivery";
 
 /** 저장 전에 확인한다. 문제가 없으면 빈 배열. */
@@ -106,10 +88,8 @@ export function validateChannel(channel: Channel): ChannelProblem[] {
     problems.push("name_too_long");
   }
 
-  if (channel.symbols.length === 0) {
-    problems.push("no_symbols");
-  } else if (channel.symbols.length > MAX_SYMBOLS_PER_CHANNEL) {
-    problems.push("too_many_symbols");
+  if (channel.symbol === null) {
+    problems.push("no_symbol");
   }
 
   if (channel.delivery.length === 0) {

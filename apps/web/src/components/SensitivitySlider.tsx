@@ -79,17 +79,15 @@ interface Props {
   /** 백분위 임계. 슬라이더 위치가 아니라 저장되는 값 그대로다. */
   value: number;
   onChange: (percentile: number) => void;
-  /** 채널에 담긴 코인 수. 예상 알림 수를 곱해서 보여준다. */
-  symbolCount?: number;
 }
 
-export function SensitivitySlider({ value, onChange, symbolCount = 1 }: Props) {
+export function SensitivitySlider({ value, onChange }: Props) {
   const t = useT();
   const markers = useMemo(buildMarkers, []);
   const position = percentileToSlider(value);
 
-  const perCoin = estimateAlertsPerDay(position);
-  const perDay = perCoin * Math.max(symbolCount, 1);
+  // 채널당 종목이 하나라 곱할 것이 없다.
+  const perDay = estimateAlertsPerDay(position);
   const caught = scaleAt(position);
 
   return (
@@ -169,13 +167,7 @@ export function SensitivitySlider({ value, onChange, symbolCount = 1 }: Props) {
             </p>
           )}
           <p className="text-body-sm text-on-surface-variant">
-            {symbolCount > 1
-              ? t.slider.rateTotal(
-                  symbolCount,
-                  formatAlertsPerDay(t, perDay),
-                  formatAlertsPerDay(t, perCoin),
-                )
-              : t.slider.ratePerCoin(formatAlertsPerDay(t, perCoin))}
+            {t.slider.ratePerCoin(formatAlertsPerDay(t, perDay))}
           </p>
         </div>
       </div>

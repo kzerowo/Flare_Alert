@@ -57,6 +57,34 @@ interface ChannelStore {
 
 const Context = createContext<ChannelStore | null>(null);
 
+/**
+ * 저장된 채널 하나를 지금 모양에 맞춘다.
+ *
+ * 1채널 1종목으로 바꾸기 전에는 symbols 배열이었다. 브라우저에 그때
+ * 저장된 게스트 데이터가 남아 있으면 channel.symbol이 undefined가 되어
+ * `channel.symbol.symbol` 같은 접근에서 그대로 죽는다. 게스트 데이터는
+ * 세션 한정이라 마이그레이션할 가치가 없으니, 옛 모양이 보이면 첫 종목만
+ * 건지고 나머지는 버린다.
+ */
+function normalizeChannel(raw: unknown): Channel | null {
+  if (typeof raw !== "object" || raw === null) {
+    return null;
+  }
+
+  const record = raw as Record<string, unknown>;
+
+  if ("symbols" in record && Array.isArray(record.symbols)) {
+    const [first] = record.symbols as unknown[];
+    return { ...record, symbol: first ?? null } as Channel;
+  }
+
+  if (!("symbol" in record) || record.symbol === undefined) {
+    return { ...record, symbol: null } as Channel;
+  }
+
+  return record as unknown as Channel;
+}
+
 function readSession(): Channel[] {
   if (typeof window === "undefined") {
     return [];
@@ -73,7 +101,9 @@ function readSession(): Channel[] {
       return [];
     }
 
-    return parsed as Channel[];
+    return parsed
+      .map(normalizeChannel)
+      .filter((c): c is Channel => c !== null);
   } catch {
     // 저장 형식이 바뀌었거나 손상된 경우. 빈 상태로 시작하는 편이
     // 오류 화면을 띄우는 것보다 낫다.

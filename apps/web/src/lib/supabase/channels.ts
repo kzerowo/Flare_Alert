@@ -49,7 +49,19 @@ function toExchange(value: string): Exchange {
   return "binance";
 }
 
+/**
+ * 채널당 종목은 하나다.
+ *
+ * 그런데도 channel_symbols를 별도 테이블로 남겨 둔다. detector가 매초
+ * 던지는 질문이 "이 종목을 보는 채널이 누구인가"라는 역방향 조회이고,
+ * 여기에 인덱스를 걸 수 있는 형태가 필요하기 때문이다.
+ *
+ * 1채널 1종목으로 바꾸기 전에 만들어진 행은 여러 개일 수 있다.
+ * 그럴 땐 첫 번째만 쓴다. 화면이 깨지는 것보다 낫다.
+ */
 function toChannel(row: ChannelRow, symbols: ChannelSymbolRow[]): Channel {
+  const first = symbols[0];
+
   return {
     id: row.id,
     name: row.name,
@@ -57,10 +69,10 @@ function toChannel(row: ChannelRow, symbols: ChannelSymbolRow[]): Channel {
     sensitivity: row.sensitivity,
     timeframes: toTimeframes(row.timeframes),
     delivery: toDelivery(row.delivery),
-    symbols: symbols.map((s) => ({
-      exchange: toExchange(s.exchange),
-      symbol: s.symbol,
-    })),
+    symbol:
+      first === undefined
+        ? null
+        : { exchange: toExchange(first.exchange), symbol: first.symbol },
   };
 }
 
@@ -117,48 +129,46 @@ export async function loadChannels(client: Client): Promise<Channel[]> {
 // 쓰기
 // ---------------------------------------------------------------------------
 
-async function replaceSymbols(
+/**
+ * 채널이 감시하는 종목을 지정한 하나로 맞춘다.
+ *
+ * 먼저 넣고 나중에 지운다. 순서를 뒤집으면 그 사이에 종목이 하나도 없는
+ * 순간이 생기고, 그때 detector가 읽으면 채널이 아무것도 감시하지 않게 된다.
+ */
+async function setSymbol(
   client: Client,
   channelId: string,
-  symbols: readonly SymbolRef[],
+  symbol: SymbolRef | null,
 ): Promise<void> {
-  // 전부 지우고 다시 넣지 않는다. 그 사이에 종목이 하나도 없는 순간이
-  // 생기는데, 그때 detector가 읽으면 채널이 아무것도 감시하지 않게 된다.
-  // 빠진 것만 지우고 새 것만 넣는다.
-  const keep = symbols.map((s) => s.symbol);
+  if (symbol !== null) {
+    const { error } = await client.from("channel_symbols").upsert(
+      {
+        channel_id: channelId,
+        exchange: symbol.exchange,
+        symbol: symbol.symbol,
+      },
+      { onConflict: "channel_id,exchange,symbol", ignoreDuplicates: true },
+    );
 
-  if (keep.length === 0) {
-    const { error } = await client
-      .from("channel_symbols")
-      .delete()
-      .eq("channel_id", channelId);
     if (error !== null) {
-      throw new Error(`감시 종목을 지우지 못했습니다: ${error.message}`);
+      throw new Error(`감시 종목을 저장하지 못했습니다: ${error.message}`);
     }
-    return;
   }
 
-  const { error: deleteError } = await client
+  // 방금 넣은 것 말고 남아 있는 행을 정리한다.
+  // 1채널 1종목으로 바꾸기 전에 만들어진 행이 있을 수 있다.
+  let stale = client
     .from("channel_symbols")
     .delete()
-    .eq("channel_id", channelId)
-    .not("symbol", "in", `(${keep.map((s) => `"${s}"`).join(",")})`);
+    .eq("channel_id", channelId);
 
-  if (deleteError !== null) {
-    throw new Error(`감시 종목을 정리하지 못했습니다: ${deleteError.message}`);
+  if (symbol !== null) {
+    stale = stale.neq("symbol", symbol.symbol);
   }
 
-  const { error: insertError } = await client.from("channel_symbols").upsert(
-    symbols.map((s) => ({
-      channel_id: channelId,
-      exchange: s.exchange,
-      symbol: s.symbol,
-    })),
-    { onConflict: "channel_id,exchange,symbol", ignoreDuplicates: true },
-  );
-
-  if (insertError !== null) {
-    throw new Error(`감시 종목을 저장하지 못했습니다: ${insertError.message}`);
+  const { error: deleteError } = await stale;
+  if (deleteError !== null) {
+    throw new Error(`감시 종목을 정리하지 못했습니다: ${deleteError.message}`);
   }
 }
 
@@ -190,7 +200,7 @@ export async function createChannelRow(
     throw new Error(`채널을 만들지 못했습니다: ${error?.message ?? "빈 응답"}`);
   }
 
-  await replaceSymbols(client, data.id, channel.symbols);
+  await setSymbol(client, data.id, channel.symbol);
 
   return { ...channel, id: data.id };
 }
@@ -214,7 +224,7 @@ export async function updateChannelRow(
     throw new Error(`채널을 저장하지 못했습니다: ${error.message}`);
   }
 
-  await replaceSymbols(client, channel.id, channel.symbols);
+  await setSymbol(client, channel.id, channel.symbol);
 }
 
 export async function deleteChannelRow(
