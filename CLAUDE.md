@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-_Last updated: 2026-07-29 22:14_
+_Last updated: 2026-07-29 22:26_
 
 ## Project Overview
 
@@ -165,7 +165,7 @@ Schema in `supabase/migrations/0001_init.sql` (base) and `0002_alerts_and_push.s
 
 **`sensitivity` stores the percentile, never the slider position.** The slider is a log-axis presentation; storing positions would silently change every user's setting if the axis is ever retuned.
 
-**`push_subscriptions`** (2026-07-29): Stores browser subscription objects from the Web Push API. One row per browser that opted in. Columns: `id`, `user_id`, `endpoint`, `p256dh`, `auth` (both key components base64url-encoded), `created_at`. The detector reads all of these and sends encrypted payloads to each endpoint. Dead subscriptions (HTTP 404/410) are deleted on first failure.
+**`push_subscriptions`** (2026-07-29): Stores browser subscription objects from the Web Push API. One row per browser that opted in. Columns: `endpoint` (primary key), `user_id`, `p256dh`, `auth` (both key components base64url-encoded), `label` (human-readable device identifier, e.g. "Chrome / Windows (localhost:3000)"), `created_at`, `last_success_at` (tracks last successful dispatch for dead-sub cleanup). The detector reads all of these and sends encrypted payloads to each endpoint. The `label` includes the subscription's origin (`window.location.host`) to distinguish subscriptions on different ports (e.g., localhost:3000 vs localhost:3002), solving duplicate notifications when the same user subscribes from multiple origins. Dead subscriptions (HTTP 404/410) are deleted on first failure.
 
 **`alerts`** (2026-07-29): Immutable event log. Columns: `id`, `user_id` (duplicated from the channel for RLS filtering — Realtime subscriptions can only filter by a single table column), `channel_id`, `symbol`, `scale`, `price`, `ratio_to_median`, `quote_volume`, `percentile`, `score`, `fired_at`. One row per alert; never updated. Broadcast on Realtime for the web UI to display history. DB failure does not block push dispatch — alerts are logged best-effort.
 

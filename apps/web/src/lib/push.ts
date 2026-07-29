@@ -70,7 +70,14 @@ function toBase64Url(buffer: ArrayBuffer | null): string {
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-/** "Chrome / Windows" 정도로 어느 기기인지 알아볼 수 있게. */
+/**
+ * "Chrome / Windows (localhost:3000)" 정도로 어느 구독인지 알아볼 수 있게.
+ *
+ * 출처를 붙이는 이유가 있다. 브라우저는 포트가 다르면 다른 사이트로
+ * 보므로 localhost:3000과 :3002에서 각각 구독하면 행이 두 개 생기고,
+ * 같은 알림이 두 번 뜬다. 라벨에 출처가 없으면 둘 다 "Chrome / Windows"로
+ * 보여서 어느 쪽이 남은 것인지 구분할 수 없다.
+ */
 function describeDevice(): string {
   const ua = navigator.userAgent;
 
@@ -98,7 +105,8 @@ function describeDevice(): string {
     os = "Linux";
   }
 
-  return os === "" ? browser : `${browser} / ${os}`;
+  const device = os === "" ? browser : `${browser} / ${os}`;
+  return `${device} (${window.location.host})`;
 }
 
 export async function registerServiceWorker(): Promise<ServiceWorkerRegistration | null> {
