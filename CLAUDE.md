@@ -585,7 +585,36 @@ The earlier caveat — "true lift is probably lower than the table above" — wa
 
 **`SENSITIVITY_DEFAULT` survives, with less margin than believed.** Slider 26 was chosen as the loosest setting clearing a pre-registered 2x bar at the 1-minute horizon. Corrected, it sits at **2.08x** — over the bar, but barely. Loosening further would drop below 2x, so the default is now pinned tighter than the original 2.29x figure suggested.
 
-Per symbol at 1 minute (corrected): ETH 2.90x, BTC 2.08x, SOL 2.06x, **LINK 1.29x**. LINK was already the weak one before correction (1.19x). **The spread across symbols is far larger than the confound** — which matters more for the product than the confound does: the same setting buys very different quality on different coins.
+Per symbol at 1 minute (corrected): ETH 2.90x, BTC 2.08x, SOL 2.06x, **LINK 1.29x**. The spread across symbols is far larger than the confound — but see below, because most of it is not a symbol effect at all.
+
+### The symbol spread is mostly turnover composition
+
+Cross-referencing the per-symbol lift against § Turnover Floor dissolves most of the apparent symbol variance. Lift by turnover bucket, per symbol:
+
+| Bucket | BTC | ETH | LINK | SOL | Bucket avg |
+|---|---|---|---|---|---|
+| 20K–50K | — | — | 0.21x | — | 0.21x |
+| 50K–200K | — | — | 1.18x | — | 1.18x |
+| 200K–1M | — | 2.63x | 1.36x | 1.22x | 1.74x |
+| 1M–5M | 1.17x | 2.48x | 2.31x | 2.83x | 2.20x |
+| 5M+ | 2.74x | 4.24x | 3.34x | 2.36x | 3.17x |
+
+**Within a matched turnover bucket LINK is never last** — 2nd of 3 at 200K–1M, 3rd of 4 at 1M–5M, 2nd of 4 at 5M+. What differs is where each symbol's alerts land:
+
+| Symbol | Alerts below 1M turnover |
+|---|---|
+| BTC | 0% (0/159) |
+| ETH | 5% (6/111) |
+| SOL | 28% (34/121) |
+| **LINK** | **90% (124/138)** |
+
+LINK's headline 1.19x is a composition effect: 90% of its alerts fire in low-turnover windows, where *every* symbol is weak. BTC never fires there at all, so its average is pulled up by construction.
+
+**This unifies the two findings.** "Alerts are worse on some coins" and "alerts are worse at low turnover" are largely the same statement. It also strengthens the case for a turnover floor — the floor would specifically remove the alerts that make certain coins look bad, rather than penalizing those coins.
+
+The cost is stark though: a 1M floor would cut LINK from 138 alerts to 14. Those 14 are the good ones (2.31x and 3.34x), but a coin that fires 14 times in 61 days reads as broken to a user watching it.
+
+Residual symbol variance inside matched buckets is real but smaller (roughly 1.8–2.4x between best and worst) and is not yet explained.
 
 Estimator note: with a flat baseline, "median of per-alert ratios" and "ratio of medians" are identical because the divisor is constant, so the uncorrected column reproduces the original method exactly. The hour-matched column necessarily uses median-of-ratios since each alert has its own divisor.
 
