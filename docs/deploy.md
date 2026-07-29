@@ -125,18 +125,113 @@ Supabase의 **Site URL**을 실제 Vercel 주소로 바꾼다 (1.4 참고).
 
 ---
 
-## 3. detector는 여기 없다
+## 3. detector
 
-`apps/detector`는 항상 떠 있는 프로세스라 Vercel에 올라가지 않는다.
-Railway나 Fly.io(도쿄)로 따로 배포한다. 아직 파이프라인이 구현되지 않아
-배포할 것이 없다.
+`apps/detector`는 바이낸스 WebSocket을 24시간 붙들고 있는 상시 프로세스라
+Vercel에 올라가지 않는다. 요청이 올 때만 깨는 서버리스로는 감지가 끊긴다.
+
+같은 이유로 **유휴 시 잠드는 무료 플랜은 쓸 수 없다** (Render 무료 등).
+잠든 사이 체결이 통째로 빠지고, 그 구간은 거래대금 0으로 남아 기준선까지
+망가뜨린다.
+
+### 3.1 어디에 올릴까
+
+| | 비용 | 상시 가동 | 비고 |
+|---|---|---|---|
+| **Oracle Cloud 무료 티어** | $0 (영구) | O | ARM 4코어/24GB. 서버 설정을 직접 한다 |
+| Railway | ~$5/월 | O | 배포는 가장 쉽다. 무료 크레딧은 30일이면 끝난다 |
+| Fly.io | ~$5/월 | O | 무료 티어 폐지됨 (2026) |
+| Render 무료 | $0 | X | 유휴 시 잠들어서 부적합 |
+
+detector는 가볍다 — 종목당 메모리 약 0.5MB(13종목이면 6MB 남짓), CPU도
+초당 수십 번의 계산이 전부다. 어느 쪽을 골라도 최저 사양으로 충분하고,
+사양 때문에 비용이 오를 일은 없다.
+
+### 3.2 Oracle Cloud 무료 티어에 올리기
+
+**VM 만들기** — 콘솔에서 Compute > Instances > Create instance.
+
+- Image: Ubuntu 22.04 이상
+- Shape: **Ampere A1 (ARM)**, 1 OCPU / 6GB 정도면 넉넉하다
+  (무료 한도는 4 OCPU / 24GB이고 인스턴스를 나눠 쓸 수 있다)
+- SSH 키를 등록하고 공인 IP를 받는다
+
+Ampere A1은 지역에 따라 재고가 없어 생성이 실패할 때가 있다. "Out of
+capacity"가 나오면 다른 가용 도메인을 고르거나 시간을 두고 다시 시도한다.
+
+**방화벽** — detector는 바깥에서 들어오는 연결이 필요 없다. 바이낸스와
+Supabase로 나가는 연결만 쓴다. 헬스체크 포트(8080)를 인터넷에 열지 않는다.
+상태는 SSH로 들어가 `curl localhost:8080/health`로 본다.
+
+**설치**
+
+```bash
+ssh ubuntu@<공인IP>
+
+sudo git clone https://github.com/kzerowo/Flare_Alert.git /opt/flare-alert
+cd /opt/flare-alert
+sudo bash apps/detector/deploy/setup.sh
+```
+
+스크립트가 Node/pnpm 설치, 빌드, 전용 계정(`flare`) 생성, systemd 등록까지
+한다. `.env`는 만들지 않는다 — 비밀 키가 들어가는 파일이라 사람이 채운다.
+
+**환경변수**
+
+```bash
+sudo -u flare tee /opt/flare-alert/.env >/dev/null <<'ENV'
+SUPABASE_URL=https://xxxx.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=...
+VAPID_PUBLIC_KEY=...
+VAPID_PRIVATE_KEY=...
+VAPID_SUBJECT=mailto:you@example.com
+PORT=8080
+LOG_LEVEL=info
+ENV
+
+sudo chmod 600 /opt/flare-alert/.env
+sudo systemctl start flare-detector
+```
+
+`SUPABASE_SERVICE_ROLE_KEY`는 RLS를 통째로 우회한다. 이 파일이 600이 아니면
+서버의 다른 계정이 전 사용자 데이터를 읽을 수 있다.
+
+VAPID 키는 웹과 **같은 쌍**이어야 한다. 공개 키가 Vercel의
+`NEXT_PUBLIC_VAPID_PUBLIC_KEY`와 다르면 구독은 되는데 발송이 전부 거절된다.
+
+**확인**
+
+```bash
+journalctl -u flare-detector -f    # 로그
+curl localhost:8080/health         # 상태
+```
+
+`/health`는 백필이 끝나기 전까지 503, 끝나면 200을 준다. 종목별 예열 상태와
+백분위 표본 수가 들어 있어서 "시세가 잠잠한 것"과 "아직 못 깨어난 것"을
+구분할 수 있다.
+
+**갱신**
+
+```bash
+cd /opt/flare-alert && sudo git pull
+sudo bash apps/detector/deploy/setup.sh
+```
+
+재시작하면 과거 20일치를 다시 받는다(종목당 3초쯤). 그동안은 감지가 멈추므로
+장이 조용한 시간에 하는 편이 낫다.
+
+### 3.3 Railway에 올린다면
+
+저장소를 연결하고 Root Directory를 비운 채 아래를 설정한다.
+
+- Build: `pnpm install --frozen-lockfile && pnpm --filter @flare-alert/core build && pnpm --filter @flare-alert/detector build`
+- Start: `node apps/detector/dist/index.js`
+- 환경변수는 3.2와 같다
 
 ---
 
 ## 아직 안 한 것
 
-- **알림 히스토리 테이블** — 알림을 만들어 내는 detector가 없어서 채울 것이 없다.
-  스키마는 `packages/core/src/types.ts`의 `Alert`에 이미 잡혀 있다.
-- **텔레그램 연결 화면** — `profiles.telegram_chat_id` 자리는 만들어 뒀지만
-  봇을 연결하는 흐름은 없다.
 - **비밀번호 재설정** — Supabase가 제공하는 기능이라 화면만 붙이면 된다.
+- **알림 보관 기간** — `alerts`는 계속 쌓이기만 한다. 오래된 행을 지우는
+  정책이 없다.

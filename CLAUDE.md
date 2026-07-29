@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-_Last updated: 2026-07-29 22:56_
+_Last updated: 2026-07-29 19:15_
 
 ## Project Overview
 
@@ -113,8 +113,9 @@ BTC, ETH, BNB, XRP, SOL, TRX, DOGE, XLM, ZEC, WBTC, WBETH, LINK, ADA
 │       │   └── page.tsx            # AuthProvider > ChannelStoreProvider > MainApp
 │       ├── src/middleware.ts       # Supabase session refresh (only place cookies can be written)
 │       ├── src/components/
-│       │   ├── MainApp.tsx                # App root: nav, hero, channel grid, error banner
-│       │   ├── ChannelCard.tsx            # Display channel with edit/delete/toggle actions (now shows single coin in header)
+│       │   ├── MainApp.tsx                # App root: nav, hero, channel grid, error banner (now with tabbed channels/alerts view)
+│       │   ├── AlertHistory.tsx           # Alert history display with channel filtering and deletion (2026-07-29)
+│       │   ├── ChannelCard.tsx            # Display channel with edit/delete/toggle actions; history button (2026-07-29)
 │       │   ├── ChannelForm.tsx            # Create/edit channel UI with coin selection + sensitivity slider (single-coin radio group)
 │       │   ├── CoinIcon.tsx               # Coin symbol → SVG icon or fallback color dot (2026-07-29)
 │       │   ├── AuthDialog.tsx             # Login/signup against Supabase Auth
@@ -125,6 +126,7 @@ BTC, ETH, BNB, XRP, SOL, TRX, DOGE, XLM, ZEC, WBTC, WBETH, LINK, ADA
 │           ├── locale.ts                  # Locale primitives — NO "use client" (server reads these)
 │           ├── i18n.tsx                   # Dictionaries + LocaleProvider + useT()
 │           ├── auth.tsx                   # AuthProvider over Supabase Auth
+│           ├── alerts.tsx                 # AlertStoreProvider: fetch alerts from Supabase + Realtime subscriptions (2026-07-29)
 │           ├── channel-store.tsx          # Guest (sessionStorage) / member (Supabase) dual mode
 │           ├── push.ts                    # Web Push subscription: request permission, subscribe, persist
 │           └── supabase/
@@ -286,6 +288,41 @@ Per channel, any combination of `browser` and `web-push`.
 **Browser notifications** (legacy, kept for compatibility):
 - In-page Notification API, only works **while a tab is open**
 - No service worker fallback; this path is being phased out in favor of Web Push
+
+### Alert History (2026-07-29)
+
+Alert history displays the detector's immutable `alerts` table records in the web UI. The interface is split across two tabs: **Channels** (channel management) and **History** (alert records).
+
+**Key behaviors:**
+
+1. **Tab switching**: MainApp manages a `Tab` union that routes between channel list and alert history views. Switching to alerts marks all previously unseen alerts as seen, clearing the badge.
+
+2. **Realtime updates**: `AlertStoreProvider` queries `alerts` once on mount (fetching up to 50 newest records), then subscribes to `INSERT` events via Supabase Realtime. The subscription filters by `user_id` at the Supabase level (not just RLS) to avoid transmitting all rows and filtering client-side. New alerts prepend to the list.
+
+3. **Deduplication**: A `seenIds` Set tracks record IDs to prevent duplicates when the initial query and Realtime subscription overlap, or when Realtime delivers the same event twice.
+
+4. **Unseen count**: Incremented on each Realtime INSERT, reset when the alerts tab is opened. Displayed as a badge on the "History" tab button.
+
+5. **Channel filtering**: Alert history can be scoped to a single channel (via `onHistory` button on each ChannelCard). In this view, channel names are omitted from each alert item since they're all the same. A "Show all" button returns to the full list. If the channel is deleted, the view naturally falls back to showing all (the channel ID no longer matches).
+
+6. **Time display**: Each alert shows both absolute time (09:53:16) and relative time ("5 min ago"). Relative time updates every 60 seconds; absolute time is static. This dual display lets users correlate the alert with chart data at that exact moment while understanding recency.
+
+7. **Price formatting**: Precision is adaptive based on the coin's typical value:
+   - BTC (≥100): 2 decimal places
+   - ETH (≥1): 4 decimal places  
+   - SHIB, etc (<1): 8 decimal places
+   Prevents both underflow truncation and floating-point bloat.
+
+8. **Deletion**: Users can delete individual alert records. Deletion is optimistic: the UI removes the record immediately, then sends the DELETE. If the deletion fails (network error), the record stays gone from the UI anyway — recency and freshness matter more than completeness of a historical log.
+
+9. **Empty states**:
+   - Guest (not signed in): message explaining accounts are required
+   - Load failure: error banner
+   - No alerts yet: card with message, customized per context (full list vs. single channel)
+
+**Interaction with Web Push**: Realtime and push notifications complement each other—they do *not* duplicate:
+- **Tab open** (alerts history is visible): Realtime stream delivers new alerts, page updates live without refresh.
+- **Tab closed** (user is away): Realtime subscription ends, Web Push service worker handles notifications.
 
 ### Score Semantics
 
@@ -492,8 +529,8 @@ A noise-picking algorithm would sit flat near 1.0x at every threshold. It doesn'
    - ✅ Web Push subscription (2026-07-29): permission request, subscription creation, persistence to Supabase
    - ✅ Service worker registration (`public/sw.js`): message handling, Notification display
    - ✅ Korean/English toggle
-   - TODO: alert history view; coin list is 13 Binance top symbols (was 32) rather than fetched live
-6. **Deployment** — `vercel.json` is in place; connecting the Vercel project and filling env vars is a manual account step (`docs/deploy.md`). The detector still has no host.
+   - ✅ **Alert history view** (2026-07-29): Tabbed interface displaying detector's alert records with channel filtering, Realtime updates, and manual deletion
+6. **Deployment** — `vercel.json` (web) and `apps/detector/deploy/` (detector) are in place. Connecting Vercel and filling env vars is a manual account step; detector deployment to Oracle Cloud (free tier) or Railway is documented in `docs/deploy.md` with setup scripts provided (2026-07-29).
 7. **Backtest tools**:
    - ✅ `apps/backtest/src/event-scale.ts`: Measures event-scale percentiles and channel rate curve (replaces `frame-standards.ts`)
    - ✅ `FRAME_SCALE_PERCENTILE` and `CHANNEL_RATE_CURVE` published in constants
