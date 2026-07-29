@@ -404,15 +404,28 @@ async function turnoverFloor(
   dataDir: string,
   streams: readonly CrossingStream[],
   manifest: Awaited<ReturnType<typeof loadManifest>>,
+  horizonIndex: number,
 ): Promise<void> {
+  const horizonSeconds = HORIZONS[horizonIndex] ?? 60;
+
   console.log("");
   console.log("═".repeat(76));
-  console.log("거래대금 하한 · 구간별 알림 품질 (1분 지평)");
+  console.log(
+    `거래대금 하한 · 구간별 알림 품질 (${horizonSeconds / 60}분 지평)`,
+  );
   console.log("");
   console.log(
     `현재 값 ${MIN_QUOTE_VOLUME.binance.toLocaleString()} USDT는 근거 없이 정해진 값이다.`,
   );
   console.log("배수가 1.0 근처인 구간은 알림에 정보가 없다는 뜻이다.");
+
+  if (horizonIndex > 0) {
+    // 1분 지평에서는 소형주의 기준선 중앙값이 0이라 배수를 낼 수 없다.
+    // 지평을 늘리면 무작위 시점에서도 가격이 움직여 비교가 가능해진다.
+    console.log(
+      "지평을 늘리면 소형주(ANKR/ONE)도 측정된다. 1분에서는 기준선이 0이라 불가능하다.",
+    );
+  }
 
   // 구간별 합계. 종목을 가로질러 모은다.
   const totals = new Map<string, { alerts: number; lift: number; n: number }>();
@@ -426,6 +439,7 @@ async function turnoverFloor(
       mergeWindowSeconds: FRAME_MERGE_WINDOW_SECONDS,
       cooldownScale: 3,
       tightening: TIGHTENING,
+      horizonIndex,
     });
 
     console.log("");
@@ -603,7 +617,10 @@ async function main(): Promise<void> {
 
 
   await alertQuality(dataDir, streams, manifest);
-  await turnoverFloor(dataDir, streams, manifest);
+  // 1분과 5분을 같이 본다. 1분에서는 소형주의 기준선이 0이라 측정이
+  // 안 되는데, 정작 거래대금 하한이 존재하는 이유가 그 소형주다.
+  await turnoverFloor(dataDir, streams, manifest, 0);
+  await turnoverFloor(dataDir, streams, manifest, 1);
   await hourConfound(dataDir, streams, manifest);
 }
 

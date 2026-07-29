@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-_Last updated: 2026-07-29 21:06_
+_Last updated: 2026-07-29 22:14_
 
 ## Project Overview
 
@@ -539,6 +539,10 @@ A noise-picking algorithm would sit flat near 1.0x at every threshold. It doesn'
 
 **Method** (`apps/backtest/src/turnover.ts`): the same lift measurement as § Alert Quality, but alerts are bucketed by the window's accumulated quote volume. Buckets are log-spaced — turnover spans four orders of magnitude across symbols, so linear buckets collapse everything into one.
 
+**Measurement now runs at two horizons** (as of 2026-07-29): `turnoverFloor(dataDir, streams, manifest, horizonIndex)` accepts a horizon index (0 for 1-minute, 1 for 5-minute). The CLI calls it twice:
+- `turnoverFloor(..., 0)` measures lift at the 1-minute horizon (majors work cleanly here)
+- `turnoverFloor(..., 1)` measures lift at the 5-minute horizon (small-cap baseline is non-zero only here)
+
 **Result — lift rises monotonically with turnover** (majors, 1-minute horizon, slider 26):
 
 | Window turnover | Alerts | Lift |
@@ -553,14 +557,37 @@ A noise-picking algorithm would sit flat near 1.0x at every threshold. It doesn'
 
 **The current floor of 50,000 USDT is too low for majors.** It admits the 50K–200K band at 1.18x, which is close enough to 1.0 to be noise. Real signal starts around 200K.
 
-**But the same measurement says nothing about small caps, and that is the whole reason the floor exists.** ANKR and ONE return `—` in every bucket: their random-baseline median 1-minute move is exactly 0, because a randomly chosen minute usually has no trades at all. Lift is undefined, not bad. Most of their alerts (36/49 and 80/95) sit below 50K, so **raising the floor would silence them almost entirely on the strength of data that does not describe them.**
+**Small caps were initially unmeasurable — but only at the 1-minute horizon.** ANKR and ONE return `—` in every bucket there, because their random-baseline median 1-minute move is exactly 0: a randomly chosen minute usually has no trades at all, so lift is undefined rather than bad. **Stretching to a 5-minute horizon makes the baseline non-zero and the comparison possible.** This is why `turnoverFloor` now runs at both horizons.
 
-This is the real finding: a single absolute floor is doing two unrelated jobs — "is this tradeable" and "is this signal real" — and the evidence only speaks to the second, only for liquid symbols. Options, none yet chosen:
-- Raise the floor for majors and accept small caps are out of scope
-- Make the floor relative to the symbol's own typical turnover rather than absolute
-- Keep the floor low and surface turnover in the UI so the user judges
+**At 5 minutes, small-cap alerts below ~5K turnover carry no signal:**
 
-`MIN_QUOTE_VOLUME` is **unchanged at 50,000** pending that product decision.
+| Bucket | ANKR | ONE |
+|---|---|---|
+| 0–1K | 0.00x (4) | 0.78x (4) |
+| 1K–5K | 1.03x (11) | 1.33x (32) |
+| 5K–20K | 1.36x (21) | 1.23x (44) |
+| 20K–50K | 3.46x (3) | 2.21x (4) |
+| 200K–1M | 3.64x (7) | 1.18x (4) |
+
+**This reverses the earlier conclusion.** The floor is not an unfounded penalty on small caps — below 5K their alerts really are noise (≈1.0x), and that is where most of ANKR's and ONE's alerts land. Filtering them is correct, not arbitrary.
+
+**But the exact value is still not located.** Above 20K the small-cap buckets hold 2–7 alerts each. Those numbers (3.46x, 2.21x, 3.64x) are too thin to place a boundary, and the 5-minute totals row is visibly corrupted by it — the `1M–5M` average of 4.57x is dragged there by a *single* ANKR alert at 15.39x. **Do not read the 5-minute totals row as a trend**; only the per-symbol low buckets, where n is 11–44, carry weight.
+
+The 5-minute picture is also non-monotonic (20K–50K at 2.08x sits above 50K–200K at 1.63x), unlike the clean 1-minute progression. Small samples are the likely cause, but it means the two horizons should not be blended into one recommendation.
+
+### Where this leaves the floor
+
+Having a floor is now evidence-backed at the bottom end: below ~5K turnover alerts are noise on every symbol measured. What is *not* settled is where it should sit, because the two ends of the range disagree about what "too low" means.
+
+- **Majors (1-min horizon)**: real signal starts around 200K. The current 50K admits a 1.18x band that is close to noise.
+- **Small caps (5-min horizon)**: signal appears somewhere above 20K, but on 2–7 alerts per bucket. Raising the floor toward 200K would take ANKR from 49 alerts to ~8 and ONE from 95 to ~4 over 61 days.
+
+So a single absolute number is still doing two unrelated jobs — "is this tradeable" and "is this signal real" — and it cannot satisfy both. Options, none yet chosen:
+- **Raise toward 200K** — best average quality, effectively drops small caps from the product
+- **Scale the floor to the symbol's own typical turnover** — fits the percentile philosophy (every threshold already calibrates per symbol) and is the only option that treats both ends coherently; needs its own measurement
+- **Keep it low and surface turnover in the UI** — pushes the judgement to the user, who has no way to make it
+
+`MIN_QUOTE_VOLUME` is **unchanged at 50,000** pending that product decision. It is worth noting the current value is not badly placed for small caps — it sits just above their noise band — and is simply too low for majors.
 
 **Also still open:** measuring small caps needs a different baseline. A 1-minute horizon on a coin that trades a few times an hour cannot produce a meaningful random comparison; a longer horizon or a trade-count-matched baseline would be needed.
 
