@@ -63,12 +63,10 @@ const ko = {
   },
 
   card: {
-    symbols: "감시 코인",
-    noSymbols: "없음",
     sensitivity: "민감도",
     perDay: "예상 알림/하루",
     catches: "잡는 규모",
-    catchesLargest: "가장 큰 급등만",
+    catchesLargest: "유동성이 가장 크게 튈 때만",
     catchesFrom: (frame: string) => `${frame} 이상`,
     delivery: "알림 방법",
     edit: "편집",
@@ -76,6 +74,8 @@ const ko = {
     watching: "감시 중",
     off: "꺼짐",
     toggleLabel: (name: string) => `${name} 켜고 끄기`,
+    removeConfirmTitle: (name: string) => `"${name}" 채널을 삭제할까요?`,
+    removeConfirmBody: "삭제하면 되돌릴 수 없습니다.",
   },
 
   form: {
@@ -86,7 +86,7 @@ const ko = {
     namePlaceholder: "예: 메이저 단타",
     defaultName: "새 채널",
     symbolsLabel: "감시 코인",
-    symbolsSelected: (count: number) => `${count}개 선택`,
+    symbolPickHint: "하나만 고를 수 있습니다",
     searchPlaceholder: "코인 검색 (BTC, ETH, SOL...)",
     noMatches: "검색 결과가 없습니다.",
     deliveryLabel: "알림 방법",
@@ -102,8 +102,7 @@ const ko = {
   problem: {
     empty_name: "채널 이름을 입력해주세요.",
     name_too_long: (max: number) => `채널 이름은 ${max}자까지입니다.`,
-    no_symbols: "코인을 하나 이상 선택해주세요.",
-    too_many_symbols: (max: number) => `코인은 채널당 ${max}개까지입니다.`,
+    no_symbol: "감시할 코인을 골라주세요.",
     no_delivery: "알림 받을 방법을 하나 이상 골라주세요.",
   },
 
@@ -112,15 +111,13 @@ const ko = {
     quiet: "조용히",
     frequent: "자주",
     summaryTitle: "이 설정이면",
-    catchesLargest: "가장 큰 급등에만 알림이 옵니다.",
+    catchesLargest: "유동성이 가장 크게 튀는 순간에만 알림이 옵니다.",
     /** 앞뒤로 나눠 가운데 프레임 이름만 굵게 쓴다. */
     catchesFromBefore: "",
-    catchesFromAfter: " 차트에서 눈에 띌 규모의 급등부터 알림이 옵니다.",
-    ratePerCoin: (rate: string) => `코인 1개당 ${rate} 정도`,
-    rateTotal: (count: number, total: string, each: string) =>
-      `코인 ${count}개 합쳐 ${total} 정도 (개당 ${each})`,
+    catchesFromAfter: " 차트에서 눈에 띌 만큼 유동성이 몰릴 때부터 알림이 옵니다.",
+    ratePerCoin: (rate: string) => `${rate} 정도 울립니다`,
     footnote:
-      "눈금은 민감도의 세기를 가늠하기 위한 참고입니다. 알림 기준은 민감도 하나뿐이며, 봉마다 따로 울리지 않고 채널당 하나로 나갑니다. 수치는 바이낸스 6종목 백테스트(2026년 4~6월) 평균이라 대형 종목일수록 더 자주 울립니다.",
+      "알림은 유동성이 몰린 것을 알릴 뿐, 가격이 오를지 내릴지는 알려주지 않습니다. 눈금은 민감도의 세기를 가늠하기 위한 참고이고, 알림 기준은 민감도 하나뿐이라 봉마다 따로 울리지 않습니다.",
   },
 
   rate: {
@@ -235,12 +232,10 @@ const en: Dictionary = {
   },
 
   card: {
-    symbols: "Watching",
-    noSymbols: "None",
     sensitivity: "Sensitivity",
     perDay: "Est. alerts/day",
     catches: "Catches",
-    catchesLargest: "Largest spikes only",
+    catchesLargest: "Only the biggest liquidity surges",
     catchesFrom: (frame: string) => `${frame} and larger`,
     delivery: "Delivery",
     edit: "Edit",
@@ -248,18 +243,19 @@ const en: Dictionary = {
     watching: "Watching",
     off: "Off",
     toggleLabel: (name: string) => `Turn ${name} on or off`,
+    removeConfirmTitle: (name: string) => `Delete "${name}"?`,
+    removeConfirmBody: "This can't be undone.",
   },
 
   form: {
     createTitle: "New channel",
     editTitle: "Edit channel",
-    subtitle: "Pick the coins to watch and set one sensitivity.",
+    subtitle: "Pick a coin to watch and set its sensitivity.",
     nameLabel: "Channel name",
-    namePlaceholder: "e.g. Majors scalping",
+    namePlaceholder: "e.g. BTC scalping",
     defaultName: "New channel",
-    symbolsLabel: "Coins",
-    symbolsSelected: (count: number) =>
-      count === 1 ? "1 selected" : `${count} selected`,
+    symbolsLabel: "Coin",
+    symbolPickHint: "one per channel",
     searchPlaceholder: "Search coins (BTC, ETH, SOL...)",
     noMatches: "No matches.",
     deliveryLabel: "Delivery",
@@ -276,9 +272,7 @@ const en: Dictionary = {
     empty_name: "Please enter a channel name.",
     name_too_long: (max: number) =>
       `Channel names are limited to ${max} characters.`,
-    no_symbols: "Select at least one coin.",
-    too_many_symbols: (max: number) =>
-      `A channel holds up to ${max} coins.`,
+    no_symbol: "Pick a coin to watch.",
     no_delivery: "Choose at least one delivery method.",
   },
 
@@ -287,14 +281,12 @@ const en: Dictionary = {
     quiet: "Quiet",
     frequent: "Frequent",
     summaryTitle: "At this setting",
-    catchesLargest: "Only the largest spikes will alert.",
-    catchesFromBefore: "Alerts start at spikes big enough to stand out on a ",
+    catchesLargest: "Only the sharpest liquidity surges will alert.",
+    catchesFromBefore: "Alerts start when liquidity gathers enough to stand out on a ",
     catchesFromAfter: " chart.",
-    ratePerCoin: (rate: string) => `About ${rate} per coin`,
-    rateTotal: (count: number, total: string, each: string) =>
-      `About ${total} across ${count} coins (${each} each)`,
+    ratePerCoin: (rate: string) => `Alerts about ${rate}`,
     footnote:
-      "The tick marks are a reference for gauging sensitivity. Sensitivity is the only firing criterion — alerts do not fire per timeframe, but once per channel. Figures average six Binance symbols backtested April–June 2026, so large caps will alert more often.",
+      "An alert tells you liquidity gathered — not whether the price is about to rise or fall. The tick marks are a reference for gauging sensitivity; sensitivity is the only firing criterion, so alerts do not fire per timeframe.",
   },
 
   rate: {
@@ -437,7 +429,7 @@ export function formatAlertsPerDay(t: Dictionary, perDay: number): string {
 export function formatProblem(
   t: Dictionary,
   problem: ChannelProblem,
-  limits: { maxNameLength: number; maxSymbols: number },
+  limits: { maxNameLength: number },
 ): string {
   if (problem === "empty_name") {
     return t.problem.empty_name;
@@ -445,11 +437,8 @@ export function formatProblem(
   if (problem === "name_too_long") {
     return t.problem.name_too_long(limits.maxNameLength);
   }
-  if (problem === "no_symbols") {
-    return t.problem.no_symbols;
-  }
-  if (problem === "too_many_symbols") {
-    return t.problem.too_many_symbols(limits.maxSymbols);
+  if (problem === "no_symbol") {
+    return t.problem.no_symbol;
   }
   return t.problem.no_delivery;
 }

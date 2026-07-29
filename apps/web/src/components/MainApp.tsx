@@ -10,6 +10,7 @@ import { useT } from "@/lib/i18n";
 import type { Dictionary } from "@/lib/i18n";
 import { AuthDialog } from "./AuthDialog";
 import { ChannelCard } from "./ChannelCard";
+import { ConfirmDialog } from "./ConfirmDialog";
 import { ChannelForm } from "./ChannelForm";
 import { Icon } from "./Icon";
 import { LanguageToggle } from "./LanguageToggle";
@@ -51,6 +52,7 @@ export function MainApp() {
     useChannels();
   const [view, setView] = useState<View>({ kind: "list" });
   const [auth, setAuth] = useState<"login" | "signup" | null>(null);
+  const [pendingRemove, setPendingRemove] = useState<Channel | null>(null);
   const notification = useNotificationPermission();
 
   const signedIn = user !== null;
@@ -198,7 +200,7 @@ export function MainApp() {
                     key={channel.id}
                     channel={channel}
                     onEdit={() => setView({ kind: "edit", channel })}
-                    onRemove={() => remove(channel.id)}
+                    onRemove={() => setPendingRemove(channel)}
                     onToggle={() =>
                       update({ ...channel, enabled: !channel.enabled })
                     }
@@ -235,6 +237,19 @@ export function MainApp() {
 
       {auth === null ? null : (
         <AuthDialog mode={auth} onClose={() => setAuth(null)} />
+      )}
+
+      {pendingRemove === null ? null : (
+        <ConfirmDialog
+          title={t.card.removeConfirmTitle(pendingRemove.name)}
+          body={t.card.removeConfirmBody}
+          confirmLabel={t.card.remove}
+          onConfirm={() => {
+            remove(pendingRemove.id);
+            setPendingRemove(null);
+          }}
+          onCancel={() => setPendingRemove(null)}
+        />
       )}
     </div>
   );
