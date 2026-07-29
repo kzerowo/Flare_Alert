@@ -9,6 +9,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  DETECTION_TIMEFRAME,
   EVENT_GAP_SECONDS,
   FRAME_SCALE_PERCENTILE,
   MIN_QUOTE_VOLUME,
@@ -16,6 +17,7 @@ import {
   TIMEFRAMES,
   percentileToSlider,
   sliderToPercentile,
+  sliderToRatio,
 } from "@flare-alert/core";
 
 import { loadCrossings, saveCrossings } from "./crossings.js";
@@ -47,6 +49,15 @@ const MIN_PERCENTILE = 89;
  * 필요한 곳에서 훑는다.
  */
 const EXTRACT_MIN_QUOTE_VOLUME = 0;
+
+/**
+ * 배수가 이 값 이상이면 백분위가 낮아도 담는다.
+ *
+ * 사용자 기준이 4배라 그 아래로 여유를 둔다. 백분위와 배수는 기준선의
+ * MAD가 클 때 서로 어긋나므로, 백분위로만 거르면 "배수는 큰데 점수는
+ * 평범한" 구간이 통째로 사라져 배수 판정을 측정할 수 없게 된다.
+ */
+const EXTRACT_MIN_RATIO = 3;
 
 // 99 위쪽을 같이 본다. 초 단위 평가에서는 상위 1%도 하루 5천 번 넘게
 // 발생하므로, 실제로 쓸 만한 구간이 99~100 사이에 몰려 있을 수 있다.
@@ -83,6 +94,7 @@ async function getStream(
   const series = await loadSymbol(dataDir, symbol, manifest);
   const result = extractCrossings(series, {
     minPercentile: MIN_PERCENTILE,
+    minRatio: EXTRACT_MIN_RATIO,
     minQuoteVolume: EXTRACT_MIN_QUOTE_VOLUME,
     warmupDays: WARMUP_DAYS,
   });
@@ -604,6 +616,57 @@ async function hourConfound(
 }
 
 /**
+ * 슬라이더 위치별 하루 알림 수. UI가 미리보기로 쓰는 곡선이다.
+ *
+ * 판정이 배수로 바뀌었으므로 옛 곡선(백분위 기준)은 통째로 못 쓴다.
+ * 화면에 "하루 3회"라고 적어 놓고 실제로 30회가 오면 그건 거짓말이다.
+ */
+function ratioCurve(streams: readonly CrossingStream[]): void {
+  console.log("");
+  console.log("═".repeat(76));
+  console.log("슬라이더 위치별 하루 알림 수 (배수 판정, 15분 창, 종목 평균)");
+  console.log("");
+  console.log(
+    pad("위치", 8) + padStart("배수", 8) + padStart("하루", 9) + "   종목별",
+  );
+
+  const frame = TIMEFRAMES.indexOf(DETECTION_TIMEFRAME);
+  const rows: { position: number; ratio: number; perDay: number }[] = [];
+
+  for (let position = 5; position <= 100; position += 5) {
+    const ratio = sliderToRatio(position);
+    const perSymbol = streams.map((stream) => {
+      const result = evaluate(stream, {
+        sensitivity: 0,
+        ratioThreshold: ratio,
+        eventGapSeconds: EVENT_GAP_SECONDS,
+        cooldownScale: 1,
+        tightening: TIGHTENING,
+        onlyFrame: frame,
+      });
+      return result.alertsPerDay;
+    });
+
+    const perDay = perSymbol.reduce((s, v) => s + v, 0) / perSymbol.length;
+    rows.push({ position, ratio, perDay });
+
+    console.log(
+      pad(String(position), 8) +
+        padStart(`${ratio}x`, 8) +
+        padStart(perDay.toFixed(2), 9) +
+        "   " +
+        perSymbol.map((v) => v.toFixed(1).padStart(6)).join(""),
+    );
+  }
+
+  console.log("");
+  console.log("상수로 넣을 형태 (CHANNEL_RATE_CURVE):");
+  console.log(
+    JSON.stringify(rows.map((r) => Math.round(r.perDay * 100) / 100)),
+  );
+}
+
+/**
  * 사용자 라벨을 정답으로 놓고 설정을 채점한다.
  *
  * 지금까지의 측정은 전부 알고리즘이 스스로 만든 잣대였다. 이건 처음으로
@@ -705,6 +768,50 @@ async function labelFit(
             padStart(`${(fit.recall * 100).toFixed(0)}%`, 9) +
             padStart(`${(fit.precision * 100).toFixed(0)}%`, 9) +
             padStart(fit.missedPeakMedian.toFixed(1), 10) +
+            padStart(`${fit.latencyMedian.toFixed(0)}초`, 9),
+        );
+      }
+    }
+  }
+
+  // ---- 배수 판정 ----
+  //
+  // 사용자가 쓰는 잣대를 그대로 판정 기준으로 놓아 본다. 프레임도 하나만
+  // 쓴다 — 프레임 격리에서 15분 단독이 6프레임 최댓값보다 나았기 때문이다.
+  console.log("");
+  console.log("── 배수 판정 (프레임 격리, 사건간격 300초) ──");
+  console.log(
+    pad("종목", 9) +
+      pad("프레임", 8) +
+      pad("배수", 7) +
+      padStart("알림/일", 9) +
+      padStart("재현율", 9) +
+      padStart("정밀도", 9) +
+      padStart("지연", 9),
+  );
+
+  for (const stream of streams) {
+    const list = events.get(stream.symbol);
+    if (list === undefined || list.length === 0) {
+      continue;
+    }
+    for (const frame of [1, 2, 3]) {
+      for (const ratio of [3, 4, 5, 6]) {
+        const fit = measureFit(stream, list, {
+          sensitivity: 0,
+          ratioThreshold: ratio,
+          eventGapSeconds: 300,
+          cooldownScale: 1,
+          tightening: TIGHTENING,
+          onlyFrame: frame,
+        });
+        console.log(
+          pad(stream.symbol.replace("USDT", ""), 9) +
+            pad(TIMEFRAMES[frame] ?? "?", 8) +
+            pad(`${ratio}x`, 7) +
+            padStart(fit.alertsPerDay.toFixed(1), 9) +
+            padStart(`${(fit.recall * 100).toFixed(0)}%`, 9) +
+            padStart(`${(fit.precision * 100).toFixed(0)}%`, 9) +
             padStart(`${fit.latencyMedian.toFixed(0)}초`, 9),
         );
       }
@@ -822,6 +929,9 @@ async function main(): Promise<void> {
   //   pnpm --filter @flare-alert/backtest start label
   const stage = process.argv[2] ?? "all";
 
+  if (stage === "all" || stage === "curve") {
+    ratioCurve(streams);
+  }
   if (stage === "all" || stage === "label") {
     await labelFit(dataDir, streams, manifest);
   }

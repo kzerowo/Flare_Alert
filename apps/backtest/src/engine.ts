@@ -36,6 +36,19 @@ export interface EngineConfig {
   legacyThrottle?: boolean;
 
   /**
+   * 백분위 대신 배수로 판정한다.
+   *
+   * 사용자가 쓰는 잣대가 이것이다 — "평소의 4배". 백분위는 종목 간 이식을
+   * 위한 내부 표현인데, 정작 사용자 기준과 맞는지는 재본 적이 없었다.
+   *
+   * 이 모드에서는 쿨다운을 걸지 않는다. 쿨다운은 백분위의 꼬리 비율을 조이는
+   * 장치라 배수에 그대로 옮길 수 없고, 사건 기반 병합이 들어온 뒤로는 역할이
+   * 겹친다(같은 사건에는 어차피 알림이 하나뿐이다). 비교할 때 이 차이를
+   * 감안해야 한다.
+   */
+  ratioThreshold?: number;
+
+  /**
    * 알림이 실제로 나갈 때마다 부른다.
    *
    * 개수만 필요한 스윕에서는 넘기지 않는다. 조합마다 수천 개의 객체를
@@ -104,7 +117,9 @@ export function evaluate(
   stream: CrossingStream,
   config: EngineConfig,
 ): EngineResult {
-  if (config.sensitivity < stream.minPercentile) {
+  const byRatio = config.ratioThreshold !== undefined;
+
+  if (!byRatio && config.sensitivity < stream.minPercentile) {
     throw new Error(
       `교차 스트림에 없는 구간입니다. ` +
         `민감도 ${config.sensitivity} < 스트림 하한 ${stream.minPercentile}`,
@@ -164,6 +179,7 @@ export function evaluate(
     }
 
     let passedMask = 0;
+    let bestValue = Number.NEGATIVE_INFINITY;
     let bestPercentile = Number.NEGATIVE_INFINITY;
     let bestFrame = -1;
     let bestQuoteVolume = 0;
@@ -179,7 +195,13 @@ export function evaluate(
       }
 
       const percentile = stream.percentiles[j] ?? 0;
-      if (percentile < config.sensitivity) {
+      const ratio = stream.ratios[j] ?? 0;
+
+      // 판정에 쓰는 값. 배수 모드면 배수, 아니면 백분위다.
+      const value = byRatio ? ratio : percentile;
+      const bar = byRatio ? (config.ratioThreshold ?? 0) : config.sensitivity;
+
+      if (value < bar) {
         continue;
       }
 
@@ -191,21 +213,26 @@ export function evaluate(
         continue;
       }
 
-      const threshold = cooldown.effectiveThreshold(
-        key,
-        config.sensitivity,
-        atMs,
-      );
+      if (!byRatio) {
+        const threshold = cooldown.effectiveThreshold(
+          key,
+          config.sensitivity,
+          atMs,
+        );
 
-      if (percentile < threshold) {
-        rejectedCooldown += 1;
-        continue;
+        if (percentile < threshold) {
+          rejectedCooldown += 1;
+          continue;
+        }
+
+        cooldown.record(key, atMs);
       }
 
-      cooldown.record(key, atMs);
       passedMask |= 1 << frameIndex;
 
-      if (percentile > bestPercentile) {
+      // 대표 신호는 판정에 쓴 값이 가장 큰 프레임으로 고른다.
+      if (value > bestValue) {
+        bestValue = value;
         bestPercentile = percentile;
         bestFrame = frameIndex;
         bestQuoteVolume = stream.quoteVolumes[j] ?? 0;

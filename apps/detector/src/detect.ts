@@ -145,7 +145,7 @@ export class Detector {
       key,
       openedAtMs: slice.openedAtMs,
       evaluatedAtMs: atMs,
-      elapsedMinutes: slice.elapsedSeconds / 60,
+      elapsedMinutes: slice.windowSeconds / 60,
       quoteVolume: slice.quoteVolume,
       velocity: slice.velocity,
     };

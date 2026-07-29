@@ -35,10 +35,18 @@ export interface CrossingStream {
    * 훑을 수 있게 한다.
    */
   quoteVolumes: Float32Array;
+  /**
+   * 창 거래대금 ÷ 기준선 중앙값.
+   *
+   * 백분위와 따로 담는다. 사용자가 실제로 쓰는 잣대가 이 배수이기 때문이다
+   * ("평소의 4배"). 백분위는 종목 간 이식을 위한 내부 표현이고, 둘 중
+   * 어느 쪽으로 판정하는 게 사용자 기준에 맞는지는 재봐야 안다.
+   */
+  ratios: Float32Array;
 }
 
 // 포맷이 바뀌면 올린다. 예전 캐시를 조용히 읽으면 결과가 통째로 틀어진다.
-const MAGIC = "FLARE-CROSSINGS-3";
+const MAGIC = "FLARE-CROSSINGS-4";
 
 export async function saveCrossings(
   dir: string,
@@ -88,6 +96,11 @@ export async function saveCrossings(
       stream.quoteVolumes.buffer,
       stream.quoteVolumes.byteOffset,
       stream.quoteVolumes.byteLength,
+    ),
+    Buffer.from(
+      stream.ratios.buffer,
+      stream.ratios.byteOffset,
+      stream.ratios.byteLength,
     ),
   ]);
 
@@ -140,6 +153,8 @@ export async function loadCrossings(
   const percentiles = new Float32Array(backing, offset, count);
   offset += count * 4;
   const quoteVolumes = new Float32Array(backing, offset, count);
+  offset += count * 4;
+  const ratios = new Float32Array(backing, offset, count);
 
   return {
     symbol: meta.symbol,
@@ -151,6 +166,7 @@ export async function loadCrossings(
     frames,
     percentiles,
     quoteVolumes,
+    ratios,
   };
 }
 
@@ -160,6 +176,7 @@ export class CrossingCollector {
   #frames = new Uint8Array(1 << 16);
   #percentiles = new Float32Array(1 << 16);
   #quoteVolumes = new Float32Array(1 << 16);
+  #ratios = new Float32Array(1 << 16);
   #count = 0;
 
   push(
@@ -167,6 +184,7 @@ export class CrossingCollector {
     frame: number,
     percentile: number,
     quoteVolume: number,
+    ratio: number,
   ): void {
     if (this.#count === this.#seconds.length) {
       this.#grow();
@@ -175,6 +193,7 @@ export class CrossingCollector {
     this.#frames[this.#count] = frame;
     this.#percentiles[this.#count] = percentile;
     this.#quoteVolumes[this.#count] = quoteVolume;
+    this.#ratios[this.#count] = ratio;
     this.#count += 1;
   }
 
@@ -187,12 +206,14 @@ export class CrossingCollector {
     frames: Uint8Array;
     percentiles: Float32Array;
     quoteVolumes: Float32Array;
+    ratios: Float32Array;
   } {
     return {
       seconds: this.#seconds.slice(0, this.#count),
       frames: this.#frames.slice(0, this.#count),
       percentiles: this.#percentiles.slice(0, this.#count),
       quoteVolumes: this.#quoteVolumes.slice(0, this.#count),
+      ratios: this.#ratios.slice(0, this.#count),
     };
   }
 
@@ -214,5 +235,9 @@ export class CrossingCollector {
     const quoteVolumes = new Float32Array(nextSize);
     quoteVolumes.set(this.#quoteVolumes);
     this.#quoteVolumes = quoteVolumes;
+
+    const ratios = new Float32Array(nextSize);
+    ratios.set(this.#ratios);
+    this.#ratios = ratios;
   }
 }

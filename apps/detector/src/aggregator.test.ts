@@ -1,11 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import {
-  LOOKBACK_WINDOW_COUNT,
-  MIN_ELAPSED_SECONDS,
-  TIMEFRAME_MINUTES,
-} from "@flare-alert/core";
+import { LOOKBACK_WINDOW_COUNT, TIMEFRAME_MINUTES } from "@flare-alert/core";
 import type { Timeframe } from "@flare-alert/core";
 
 import { SymbolAggregator } from "./aggregator.js";
@@ -19,77 +15,59 @@ function sliceOf(aggregator: SymbolAggregator, timeframe: Timeframe) {
   return aggregator.slices().find((slice) => slice.timeframe === timeframe);
 }
 
+/** 1분 프레임이 깨어날 만큼 평탄한 과거를 넣는다. 분당 600 = 초당 10. */
+function primeMinutes(aggregator: SymbolAggregator, start: number): number {
+  const lookback = LOOKBACK_WINDOW_COUNT["1m"];
+  for (let i = 0; i < lookback; i += 1) {
+    aggregator.feedMinute(start + i * 60, 600, 1);
+  }
+  return start + lookback * 60;
+}
+
 describe("SymbolAggregator 창 경계", () => {
-  it("창이 절대 시각 기준으로 열린다", () => {
+  it("기준선 창이 절대 시각 기준으로 열린다", () => {
     // 1일봉이 UTC 자정에 열려야 한다. 프로세스를 켠 시각이 기준이 되면
     // 백테스트에서 잰 값과 다른 창을 보게 된다.
     const aggregator = new SymbolAggregator("TESTUSDT");
 
-    // 자정 직전 1분부터 시작한다.
     const midnight = 1_800_000 * 86_400; // 86400의 배수 = UTC 자정
     aggregator.feedMinute(midnight - 60, 100, 1);
     aggregator.feedMinute(midnight, 100, 1);
 
-    const daily = aggregator.slices().find((s) => s.timeframe === "1d");
-    // 아직 lookback이 안 차서 slice가 안 나오는 게 정상이다.
-    assert.equal(daily, undefined);
-
-    // 대신 경과 시간이 자정 기준으로 세어지는지는 내부 상태로 본다.
-    // 자정 직후 1분을 넣었으므로 1일 창은 방금 열렸다.
+    // lookback이 안 차서 slice는 아직 안 나온다.
+    assert.equal(sliceOf(aggregator, "1d"), undefined);
     assert.equal(aggregator.currentSecond, midnight + 59);
   });
 
-  it("경과 시간이 창이 열린 뒤로만 세어진다", () => {
+  it("트레일링 창은 경계에서 리셋되지 않는다", () => {
+    // 정렬 창이라면 여기서 0부터 다시 쌓인다. 트레일링 창은 직전 분을
+    // 그대로 들고 있어야 한다. 창이 막 열린 순간의 사각지대가 없다는 뜻이다.
     const aggregator = new SymbolAggregator("TESTUSDT");
-    const timeframe: Timeframe = "1m";
     const start = 1_800_000 * 86_400;
+    const windowStart = primeMinutes(aggregator, start);
 
-    // 완결 창을 lookback개 만든다.
-    const lookback = LOOKBACK_WINDOW_COUNT[timeframe];
-    for (let i = 0; i < lookback; i += 1) {
-      aggregator.feedMinute(start + i * 60, 600, 1);
-    }
+    // 새 정렬 창의 첫 초. 거래는 없었다.
+    aggregator.advanceSecond(windowStart);
 
-    // 다음 창의 첫 초부터 초 단위로 진행한다.
-    const windowStart = start + lookback * 60;
-    for (let s = 0; s < 30; s += 1) {
-      aggregator.advanceSecond(windowStart + s);
-    }
-
-    const slice = sliceOf(aggregator, timeframe);
+    const slice = sliceOf(aggregator, "1m");
     assert.ok(slice !== undefined);
-    assert.equal(slice.elapsedSeconds, 30);
-    assert.equal(slice.openedAtMs, windowStart * 1000);
+    // 직전 59초(590) + 이번 초(0). 정렬 창이었다면 0이었을 자리다.
+    assert.equal(slice.quoteVolume, 590);
   });
 
-  it("창이 바뀌면 누적이 0부터 다시 쌓인다", () => {
+  it("창 길이는 늘 프레임 길이와 같다", () => {
     const aggregator = new SymbolAggregator("TESTUSDT");
     const start = 1_800_000 * 86_400;
-    const lookback = LOOKBACK_WINDOW_COUNT["1m"];
+    const windowStart = primeMinutes(aggregator, start);
 
-    for (let i = 0; i < lookback; i += 1) {
-      aggregator.feedMinute(start + i * 60, 600, 1);
-    }
-
-    const windowStart = start + lookback * 60;
-    for (let s = 0; s < 60; s += 1) {
+    for (let s = 0; s < 7; s += 1) {
       aggregator.advanceSecond(windowStart + s);
-    }
-    // 이 창은 거래가 없었으므로 0이어야 한다.
-    assert.equal(sliceOf(aggregator, "1m")?.quoteVolume, 0);
-
-    // 다음 창 첫 초에 체결을 넣는다. 판정이 시작되는 시점까지 진행해야
-    // slice가 나오므로 MIN_ELAPSED_SECONDS만큼 흘린다.
-    const next = windowStart + 60;
-    aggregator.ingest(next * 1000, 10, 500);
-    const minElapsed = MIN_ELAPSED_SECONDS["1m"];
-    for (let s = 0; s < minElapsed; s += 1) {
-      aggregator.advanceSecond(next + s);
     }
 
     const slice = sliceOf(aggregator, "1m");
-    assert.equal(slice?.quoteVolume, 500);
-    assert.equal(slice?.elapsedSeconds, minElapsed);
+    assert.ok(slice !== undefined);
+    assert.equal(slice.windowSeconds, 60);
+    assert.equal(slice.openedAtMs, (windowStart + 7 - 60) * 1000);
   });
 });
 
@@ -97,14 +75,9 @@ describe("SymbolAggregator 속도", () => {
   it("속도가 분당 거래대금이다", () => {
     const aggregator = new SymbolAggregator("TESTUSDT");
     const start = 1_800_000 * 86_400;
-    const lookback = LOOKBACK_WINDOW_COUNT["1m"];
+    const windowStart = primeMinutes(aggregator, start);
 
-    for (let i = 0; i < lookback; i += 1) {
-      aggregator.feedMinute(start + i * 60, 600, 1);
-    }
-
-    const windowStart = start + lookback * 60;
-    // 30초 동안 300을 넣으면 분당 600이다.
+    // 평탄하게 이어간다. 초당 10이면 분당 600이다.
     for (let s = 0; s < 30; s += 1) {
       aggregator.ingest((windowStart + s) * 1000, 10, 10);
       aggregator.advanceSecond(windowStart + s);
@@ -112,8 +85,33 @@ describe("SymbolAggregator 속도", () => {
 
     const slice = sliceOf(aggregator, "1m");
     assert.ok(slice !== undefined);
-    assert.equal(slice.quoteVolume, 300);
+    assert.equal(slice.quoteVolume, 600);
     assert.equal(slice.velocity, 600);
+  });
+
+  it("짧은 버스트를 창 전체로 외삽하지 않는다", () => {
+    // 회귀 테스트. 예전에는 창이 열린 지 10초면 그 10초를 6배로 부풀려
+    // 완결 창들의 중앙값과 비교했고, 그래서 차트로는 평범한 자리에
+    // "평소의 6배"짜리 알림이 나갔다.
+    const aggregator = new SymbolAggregator("TESTUSDT");
+    const start = 1_800_000 * 86_400;
+    const windowStart = primeMinutes(aggregator, start);
+
+    // 새 창 첫 초에 500이 몰리고, 나머지는 평소대로 초당 10.
+    for (let s = 0; s < 10; s += 1) {
+      aggregator.ingest((windowStart + s) * 1000, 10, s === 0 ? 510 : 10);
+      aggregator.advanceSecond(windowStart + s);
+    }
+
+    const slice = sliceOf(aggregator, "1m");
+    assert.ok(slice !== undefined);
+
+    // 직전 분의 마지막 50초(500) + 이번 10초(600) = 1100.
+    assert.equal(slice.quoteVolume, 1100);
+    assert.equal(slice.velocity, 1100);
+
+    // 옛 방식이었다면 600 / (10/60) = 3600, 즉 평소의 6배로 읽혔다.
+    assert.ok(slice.velocity < 3600);
   });
 
   it("완결 창의 속도가 기준선 표본으로 쌓인다", () => {
@@ -121,11 +119,9 @@ describe("SymbolAggregator 속도", () => {
     const start = 1_800_000 * 86_400;
     const lookback = LOOKBACK_WINDOW_COUNT["1m"];
 
-    // 분당 600씩 흘려보낸다.
     for (let i = 0; i < lookback; i += 1) {
       aggregator.feedMinute(start + i * 60, 600, 1);
     }
-    // 창 하나를 더 열어야 slice가 나온다.
     aggregator.feedMinute(start + lookback * 60, 600, 1);
 
     const slice = sliceOf(aggregator, "1m");
@@ -141,40 +137,15 @@ describe("SymbolAggregator 예열", () => {
   it("완결 창이 모자라면 프레임이 나오지 않는다", () => {
     const aggregator = new SymbolAggregator("TESTUSDT");
     const start = 1_800_000 * 86_400;
-
-    // 1분 창을 lookback - 1개만 만든다.
     const lookback = LOOKBACK_WINDOW_COUNT["1m"];
+
     for (let i = 0; i < lookback - 1; i += 1) {
       aggregator.feedMinute(start + i * 60, 600, 1);
     }
-
     assert.equal(sliceOf(aggregator, "1m"), undefined);
 
-    // 하나 더 넣으면(= 완결 창이 lookback개) 나온다.
     aggregator.feedMinute(start + (lookback - 1) * 60, 600, 1);
     aggregator.feedMinute(start + lookback * 60, 600, 1);
-    assert.ok(sliceOf(aggregator, "1m") !== undefined);
-  });
-
-  it("창이 열린 직후에는 판정하지 않는다", () => {
-    // 표본이 적을 때 v = 거래대금 / 경과분 이 발산한다.
-    const aggregator = new SymbolAggregator("TESTUSDT");
-    const start = 1_800_000 * 86_400;
-    const lookback = LOOKBACK_WINDOW_COUNT["1m"];
-
-    for (let i = 0; i < lookback; i += 1) {
-      aggregator.feedMinute(start + i * 60, 600, 1);
-    }
-
-    const windowStart = start + lookback * 60;
-    const minElapsed = MIN_ELAPSED_SECONDS["1m"];
-
-    for (let s = 0; s < minElapsed - 1; s += 1) {
-      aggregator.advanceSecond(windowStart + s);
-    }
-    assert.equal(sliceOf(aggregator, "1m"), undefined);
-
-    aggregator.advanceSecond(windowStart + minElapsed - 1);
     assert.ok(sliceOf(aggregator, "1m") !== undefined);
   });
 
@@ -182,7 +153,6 @@ describe("SymbolAggregator 예열", () => {
     const aggregator = new SymbolAggregator("TESTUSDT");
     const start = 1_800_000 * 86_400;
 
-    // 1분 프레임만 깨어날 만큼 넣는다.
     const minutes = warmupSeconds("1m") / 60 + 1;
     for (let i = 0; i < minutes; i += 1) {
       aggregator.feedMinute(start + i * 60, 600, 1);
@@ -198,50 +168,37 @@ describe("SymbolAggregator 체결 버퍼", () => {
     // 늦게 온 체결을 소급 반영하면 같은 창을 두 번 다른 값으로 평가하게 된다.
     const aggregator = new SymbolAggregator("TESTUSDT");
     const start = 1_800_000 * 86_400;
-    const lookback = LOOKBACK_WINDOW_COUNT["1m"];
+    const windowStart = primeMinutes(aggregator, start);
 
-    for (let i = 0; i < lookback; i += 1) {
-      aggregator.feedMinute(start + i * 60, 600, 1);
-    }
-
-    const windowStart = start + lookback * 60;
     aggregator.advanceSecond(windowStart);
     aggregator.advanceSecond(windowStart + 1);
 
     // 이미 지난 초로 들어온 체결.
     aggregator.ingest((windowStart + 1) * 1000, 10, 999);
+    aggregator.advanceSecond(windowStart + 2);
 
-    // 판정이 시작되는 시점까지 진행한다.
-    for (let s = 2; s < MIN_ELAPSED_SECONDS["1m"]; s += 1) {
-      aggregator.advanceSecond(windowStart + s);
-    }
-
-    assert.equal(sliceOf(aggregator, "1m")?.quoteVolume, 0);
+    // 직전 분의 마지막 57초(570)만 남는다. 999는 어디에도 반영되지 않는다.
+    assert.equal(sliceOf(aggregator, "1m")?.quoteVolume, 570);
   });
 
   it("미래 초의 체결은 그 초가 올 때 반영된다", () => {
     const aggregator = new SymbolAggregator("TESTUSDT");
     const start = 1_800_000 * 86_400;
-    const lookback = LOOKBACK_WINDOW_COUNT["1m"];
-
-    for (let i = 0; i < lookback; i += 1) {
-      aggregator.feedMinute(start + i * 60, 600, 1);
-    }
-
-    const windowStart = start + lookback * 60;
+    const windowStart = primeMinutes(aggregator, start);
     const arrivesAt = windowStart + 20;
 
     // 20초 뒤 체결이 먼저 도착했다.
     aggregator.ingest(arrivesAt * 1000, 10, 250);
 
-    // 그 초에 닿기 전까지는 창에 반영되지 않는다.
     for (let s = 0; s < 20; s += 1) {
       aggregator.advanceSecond(windowStart + s);
     }
-    assert.equal(sliceOf(aggregator, "1m")?.quoteVolume, 0);
+    // 아직 안 들어왔다. 직전 분의 남은 40초(400)만 보인다.
+    assert.equal(sliceOf(aggregator, "1m")?.quoteVolume, 400);
 
     aggregator.advanceSecond(arrivesAt);
-    assert.equal(sliceOf(aggregator, "1m")?.quoteVolume, 250);
+    // 직전 분의 남은 39초(390) + 250.
+    assert.equal(sliceOf(aggregator, "1m")?.quoteVolume, 640);
   });
 });
 
@@ -270,7 +227,7 @@ describe("분 단위 채우기와 초 단위 진행이 같은 창을 만든다",
 
     assert.ok(a !== undefined && b !== undefined);
     assert.equal(a.quoteVolume, b.quoteVolume);
-    assert.equal(a.elapsedSeconds, b.elapsedSeconds);
+    assert.equal(a.windowSeconds, b.windowSeconds);
     assert.equal(a.velocity, b.velocity);
     assert.deepEqual(a.velocities, b.velocities);
   });

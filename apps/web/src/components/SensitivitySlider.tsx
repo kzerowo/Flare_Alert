@@ -3,76 +3,40 @@
 import { useMemo } from "react";
 
 import {
-  FRAME_SCALE_PERCENTILE,
   SLIDER_MAX,
   SLIDER_MIN,
-  TIMEFRAMES,
   estimateAlertsPerDay,
   percentileToSlider,
+  ratioToSlider,
   sliderToPercentile,
+  sliderToRatio,
 } from "@flare-alert/core";
-import type { Timeframe } from "@flare-alert/core";
 
 import { formatAlertsPerDay, useT } from "@/lib/i18n";
 import { Icon } from "./Icon";
 
 /**
- * 사건 규모 눈금.
+ * 눈금은 판정 배수다.
  *
- * 위치는 백테스트 실측값이고 간격이 고르지 않다. 시안은 여섯 개를 균등
- * 배치했지만 그렇게 하면 라벨이 거짓말이 된다. 1분봉급 급등은 흔해서
- * 오른쪽, 1일봉급은 드물어서 왼쪽에 와야 한다.
+ * 예전에는 "1분봉급 / 5분봉급 …" 같은 규모 라벨을 달았다. 판정이 여섯
+ * 프레임의 백분위 최댓값이던 시절의 이야기인데, 실제로는 늘 가장 요동치는
+ * 프레임이 이겨서 라벨이 뜻하는 바와 알림이 맞지 않았다.
+ *
+ * 지금은 15분 창 하나로 판정하고 슬라이더가 정하는 것은 배수뿐이다.
+ * 그러면 눈금도 배수여야 한다 — 사용자가 차트를 보고 직접 확인할 수 있는
+ * 유일한 숫자이기도 하다.
  */
-interface Marker {
-  position: number;
-  timeframes: Timeframe[];
-}
-
-function buildMarkers(): Marker[] {
-  const byPosition = new Map<number, Timeframe[]>();
-
-  for (const timeframe of TIMEFRAMES) {
-    const position = percentileToSlider(FRAME_SCALE_PERCENTILE[timeframe]);
-    const existing = byPosition.get(position);
-    if (existing === undefined) {
-      byPosition.set(position, [timeframe]);
-    } else {
-      existing.push(timeframe);
-    }
-  }
-
-  const sorted = [...byPosition.entries()].sort((a, b) => a[0] - b[0]);
-  const merged: Marker[] = [];
-
-  for (const [position, timeframes] of sorted) {
-    const previous = merged[merged.length - 1];
-    if (previous !== undefined && position - previous.position <= 4) {
-      previous.timeframes.push(...timeframes);
-      continue;
-    }
-    merged.push({ position, timeframes: [...timeframes] });
-  }
-
-  return merged;
-}
+const RATIO_MARKS = [8, 6, 4, 3, 2] as const;
 
 function toTrackPercent(position: number): number {
   return ((position - SLIDER_MIN) / (SLIDER_MAX - SLIDER_MIN)) * 100;
 }
 
-/**
- * 지금 민감도가 잡아내는 가장 작은 규모.
- *
- * TIMEFRAMES는 짧은 것부터이고 눈금 위치는 그 반대로 감소한다.
- * 그러므로 조건을 만족하는 첫 항목이 곧 가장 작은 규모다.
- */
-function scaleAt(position: number): Timeframe | null {
-  for (const timeframe of TIMEFRAMES) {
-    if (percentileToSlider(FRAME_SCALE_PERCENTILE[timeframe]) <= position) {
-      return timeframe;
-    }
-  }
-  return null;
+/** 배수를 "4배" / "4x"로. 소수점은 필요할 때만 붙인다. */
+function formatRatio(ratio: number, suffix: string): string {
+  const rounded = Math.round(ratio * 10) / 10;
+  const text = Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+  return `${text}${suffix}`;
 }
 
 interface Props {
@@ -83,12 +47,20 @@ interface Props {
 
 export function SensitivitySlider({ value, onChange }: Props) {
   const t = useT();
-  const markers = useMemo(buildMarkers, []);
   const position = percentileToSlider(value);
+
+  const markers = useMemo(
+    () =>
+      RATIO_MARKS.map((ratio) => ({
+        ratio,
+        position: ratioToSlider(ratio),
+      })).sort((a, b) => a.position - b.position),
+    [],
+  );
 
   // 채널당 종목이 하나라 곱할 것이 없다.
   const perDay = estimateAlertsPerDay(position);
-  const caught = scaleAt(position);
+  const ratio = sliderToRatio(position);
 
   return (
     <section className="space-y-4">
@@ -97,18 +69,18 @@ export function SensitivitySlider({ value, onChange }: Props) {
           {t.slider.label}
         </label>
         <span className="font-mono text-headline text-primary">
-          {position}%
+          {formatRatio(ratio, t.slider.ratioSuffix)}
         </span>
       </div>
 
       <div className="px-2">
-        {/* 규모 눈금. 간격이 고르지 않은 것이 정상이다. */}
+        {/* 배수 눈금. 로그 축이라 간격이 고르지 않은 것이 정상이다. */}
         <div className="relative h-8">
           {markers.map((marker) => {
             const active = marker.position <= position;
             return (
               <div
-                key={marker.position}
+                key={marker.ratio}
                 className="absolute flex -translate-x-1/2 flex-col items-center"
                 style={{ left: `${toTrackPercent(marker.position)}%` }}
               >
@@ -117,7 +89,7 @@ export function SensitivitySlider({ value, onChange }: Props) {
                     active ? "font-bold text-primary" : "text-outline"
                   }`}
                 >
-                  {marker.timeframes.map((tf) => t.frame[tf]).join("·")}
+                  {formatRatio(marker.ratio, t.slider.ratioSuffix)}
                 </span>
                 <span
                   className={`mt-0.5 h-2 w-px ${
@@ -157,15 +129,11 @@ export function SensitivitySlider({ value, onChange }: Props) {
         </span>
         <div className="space-y-1">
           <h4 className="text-title text-primary">{t.slider.summaryTitle}</h4>
-          {caught === null ? (
-            <p className="text-body-sm">{t.slider.catchesLargest}</p>
-          ) : (
-            <p className="text-body-sm">
-              {t.slider.catchesFromBefore}
-              <b>{t.frame[caught]}</b>
-              {t.slider.catchesFromAfter}
-            </p>
-          )}
+          <p className="text-body-sm">
+            {t.slider.catchesRatioBefore}
+            <b>{formatRatio(ratio, t.slider.ratioSuffix)}</b>
+            {t.slider.catchesRatioAfter}
+          </p>
           <p className="text-body-sm text-on-surface-variant">
             {t.slider.ratePerCoin(formatAlertsPerDay(t, perDay))}
           </p>

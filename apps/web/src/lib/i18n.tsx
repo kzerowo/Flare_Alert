@@ -133,16 +133,17 @@ const ko = {
 
   slider: {
     label: "민감도",
+    /** 배수 뒤에 붙는 말. "4배" */
+    ratioSuffix: "배",
     quiet: "조용히",
     frequent: "자주",
     summaryTitle: "이 설정이면",
-    catchesLargest: "유동성이 가장 크게 튀는 순간에만 알림이 옵니다.",
-    /** 앞뒤로 나눠 가운데 프레임 이름만 굵게 쓴다. */
-    catchesFromBefore: "",
-    catchesFromAfter: " 차트에서 눈에 띌 만큼 유동성이 몰릴 때부터 알림이 옵니다.",
+    /** 앞뒤로 나눠 가운데 배수만 굵게 쓴다. */
+    catchesRatioBefore: "최근 15분 거래대금이 평소의 ",
+    catchesRatioAfter: " 이상일 때 알림이 옵니다.",
     ratePerCoin: (rate: string) => `${rate} 정도 울립니다`,
     footnote:
-      "알림은 유동성이 몰린 것을 알릴 뿐, 가격이 오를지 내릴지는 알려주지 않습니다. 눈금은 민감도의 세기를 가늠하기 위한 참고이고, 알림 기준은 민감도 하나뿐이라 봉마다 따로 울리지 않습니다.",
+      "알림은 유동성이 몰린 것을 알릴 뿐, 가격이 오를지 내릴지는 알려주지 않습니다. 평소는 직전 8시간의 15분 거래대금 중앙값이고, 차트에서 직접 확인할 수 있는 숫자입니다.",
   },
 
   rate: {
@@ -345,15 +346,15 @@ const en: Dictionary = {
 
   slider: {
     label: "Sensitivity",
+    ratioSuffix: "x",
     quiet: "Quiet",
     frequent: "Frequent",
     summaryTitle: "At this setting",
-    catchesLargest: "Only the sharpest liquidity surges will alert.",
-    catchesFromBefore: "Alerts start when liquidity gathers enough to stand out on a ",
-    catchesFromAfter: " chart.",
+    catchesRatioBefore: "Alerts when the last 15 minutes of turnover reaches ",
+    catchesRatioAfter: " of normal.",
     ratePerCoin: (rate: string) => `Alerts about ${rate}`,
     footnote:
-      "An alert tells you liquidity gathered — not whether the price is about to rise or fall. The tick marks are a reference for gauging sensitivity; sensitivity is the only firing criterion, so alerts do not fire per timeframe.",
+      "An alert tells you liquidity gathered — not whether the price is about to rise or fall. \"Normal\" is the median 15-minute turnover over the past 8 hours, a number you can check on the chart yourself.",
   },
 
   rate: {

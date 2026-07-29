@@ -3,6 +3,9 @@ import { describe, it } from "node:test";
 
 import {
   FRAME_SCALE_PERCENTILE,
+  RATIO_AT_SLIDER_MAX,
+  RATIO_AT_SLIDER_MIN,
+  RATIO_DEFAULT,
   SENSITIVITY_DEFAULT,
   SENSITIVITY_MAX,
   SENSITIVITY_MIN,
@@ -14,7 +17,9 @@ import {
   estimateAlertsPerDay,
   describeAlertRate,
   percentileToSlider,
+  ratioToSlider,
   sliderToPercentile,
+  sliderToRatio,
 } from "./sensitivity.js";
 
 describe("sliderToPercentile", () => {
@@ -37,12 +42,42 @@ describe("sliderToPercentile", () => {
     assert.equal(sliderToPercentile(9999), SENSITIVITY_MIN);
   });
 
-  it("기본값이 1시간봉급 눈금에 놓인다", () => {
-    // 품질 측정으로 정한 자리다. 근거는 constants.ts의 SENSITIVITY_DEFAULT 주석.
-    assert.equal(
-      percentileToSlider(SENSITIVITY_DEFAULT),
-      percentileToSlider(FRAME_SCALE_PERCENTILE["1h"]),
-    );
+  it("기본값이 판정 배수 4배에 놓인다", () => {
+    // 사용자가 15분봉 차트에 직접 표시한 기준이다. 근거는 constants.ts의
+    // SENSITIVITY_DEFAULT 주석.
+    const slider = percentileToSlider(SENSITIVITY_DEFAULT);
+    assert.equal(Math.round(sliderToRatio(slider)), RATIO_DEFAULT);
+  });
+});
+
+describe("sliderToRatio", () => {
+  it("양 끝이 배수 범위와 맞는다", () => {
+    assert.equal(sliderToRatio(SLIDER_MIN), RATIO_AT_SLIDER_MIN);
+    assert.equal(sliderToRatio(SLIDER_MAX), RATIO_AT_SLIDER_MAX);
+  });
+
+  it("오른쪽으로 갈수록 배수가 낮아진다 (= 자주 울린다)", () => {
+    let previous = Number.POSITIVE_INFINITY;
+    for (let position = SLIDER_MIN; position <= SLIDER_MAX; position += 1) {
+      const ratio = sliderToRatio(position);
+      assert.ok(ratio < previous, `위치 ${position}에서 역전`);
+      previous = ratio;
+    }
+  });
+
+  it("왕복해도 위치가 유지된다", () => {
+    for (let position = SLIDER_MIN; position <= SLIDER_MAX; position += 1) {
+      assert.equal(
+        ratioToSlider(sliderToRatio(position)),
+        position,
+        `위치 ${position}에서 어긋남`,
+      );
+    }
+  });
+
+  it("범위를 벗어난 배수도 안전하게 자른다", () => {
+    assert.equal(ratioToSlider(999), SLIDER_MIN);
+    assert.equal(ratioToSlider(0), SLIDER_MAX);
   });
 });
 
@@ -105,14 +140,10 @@ describe("사건 규모 눈금", () => {
     }
   });
 
-  it("1분봉급 눈금이 실제 차트 감각과 맞는다", () => {
-    // 하루 15~20회. 백테스트 수치가 아니라 실제 차트를 본 감각에서 나온
-    // 기준이고, 사건 기준선(백분위 98)을 여기에 맞춰 골랐다.
-    const position = percentileToSlider(FRAME_SCALE_PERCENTILE["1m"]);
-    const rate = estimateAlertsPerDay(position);
-
-    assert.ok(rate >= 15 && rate <= 20, `하루 ${rate.toFixed(1)}회`);
-  });
+  // 눈금이 "그 봉 차트에서 눈에 띌 규모를 잡는다"는 뜻이던 시절의 검사는
+  // 뺐다. 판정이 15분 창 하나로 고정되면서 그 의미가 사라졌다 — 이제
+  // 슬라이더가 정하는 것은 규모가 아니라 배수다. FRAME_SCALE_PERCENTILE은
+  // 아직 남아 있지만 판정에는 쓰이지 않는다.
 });
 
 describe("estimateAlertsPerDay", () => {

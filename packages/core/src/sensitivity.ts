@@ -1,6 +1,8 @@
 import {
   CHANNEL_RATE_CURVE,
   FRAME_RATE_CURVE_POSITIONS,
+  RATIO_AT_SLIDER_MAX,
+  RATIO_AT_SLIDER_MIN,
   SENSITIVITY_MAX,
   SENSITIVITY_MIN,
 } from "./constants.js";
@@ -49,6 +51,34 @@ export function sliderToPercentile(position: number): Sensitivity {
 
   // 부동소수 오차로 99.99000000001 같은 값이 나오지 않게 자른다.
   return Math.round((100 - tail) * 10_000) / 10_000;
+}
+
+/**
+ * 슬라이더 위치(1~100) → 판정 배수.
+ *
+ * 위치가 커질수록 배수가 낮아지고 알림이 잦아진다. 축은 로그다 —
+ * 1.5배와 2배의 차이는 크고 9배와 10배의 차이는 거의 없기 때문이다.
+ *
+ * 슬라이더 49가 기본값인 4배에 대응한다.
+ */
+export function sliderToRatio(position: number): number {
+  const clamped = clamp(position, SLIDER_MIN, SLIDER_MAX);
+  const t = (clamped - SLIDER_MIN) / (SLIDER_MAX - SLIDER_MIN);
+
+  const ratio =
+    RATIO_AT_SLIDER_MIN * (RATIO_AT_SLIDER_MAX / RATIO_AT_SLIDER_MIN) ** t;
+
+  return Math.round(ratio * 100) / 100;
+}
+
+/** 판정 배수 → 슬라이더 위치. */
+export function ratioToSlider(ratio: number): number {
+  const clamped = clamp(ratio, RATIO_AT_SLIDER_MAX, RATIO_AT_SLIDER_MIN);
+  const t =
+    Math.log(clamped / RATIO_AT_SLIDER_MIN) /
+    Math.log(RATIO_AT_SLIDER_MAX / RATIO_AT_SLIDER_MIN);
+
+  return Math.round(SLIDER_MIN + t * (SLIDER_MAX - SLIDER_MIN));
 }
 
 /** 백분위 임계 → 슬라이더 위치. 표시용 눈금을 놓을 때 쓴다. */

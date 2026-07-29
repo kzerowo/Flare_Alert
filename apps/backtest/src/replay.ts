@@ -1,11 +1,11 @@
 import {
   HistogramPercentileEstimator,
   LOOKBACK_WINDOW_COUNT,
-  MIN_ELAPSED_SECONDS,
   TIMEFRAMES,
   TIMEFRAME_MINUTES,
   computeBaseline,
   computeScore,
+  ratioToMedian,
 } from "@flare-alert/core";
 import type {
   SeriesKey,
@@ -20,6 +20,14 @@ import type { SymbolSeries } from "./data.js";
 export interface ExtractOptions {
   /** 이 백분위 미만은 버린다. 어떤 파라미터로도 알림이 될 수 없는 구간. */
   minPercentile: number;
+  /**
+   * 이 배수 이상이면 백분위가 낮아도 담는다.
+   *
+   * 사용자가 실제로 쓰는 잣대는 배수("평소의 4배")이고 우리 내부 표현은
+   * 백분위다. 둘 중 어느 쪽으로 판정할지 아직 안 정했으므로, 한쪽 기준만
+   * 걸러 버리면 다른 쪽을 측정할 수 없게 된다.
+   */
+  minRatio: number;
   /**
    * 절대 거래대금 하한. 창 누적 거래대금이 이 값 미만이면 버린다.
    *
@@ -64,7 +72,6 @@ interface FrameContext {
   index: number;
   key: SeriesKey;
   windowSeconds: number;
-  minElapsedSeconds: number;
   lookback: number;
   /** 완결된 창들의 속도. 인덱스는 windowOrdinal - firstOrdinal. */
   velocities: Float64Array;
@@ -79,6 +86,11 @@ interface FrameContext {
  *
  * 기준선은 "직전 N개 완결 창"의 중앙값이므로 창이 바뀔 때만 달라진다.
  * 매 초 다시 계산하면 같은 결과를 수백 번 반복하게 된다.
+ *
+ * 기준선은 경계 정렬 창을 그대로 쓴다. 판정 대상만 트레일링 창으로 바꾼다.
+ * 둘 다 "꽉 찬 W초 구간의 분당 거래대금"이라 단위가 같고, 정렬 창은 겹치지
+ * 않아 중앙값이 안정적이다. 트레일링 창은 직전 완결 창 하나와 부분적으로
+ * 겹치는데, lookback이 14개 이상이라 중앙값에 미치는 영향은 무시할 만하다.
  */
 function buildFrameContext(
   series: SymbolSeries,
@@ -113,7 +125,6 @@ function buildFrameContext(
     index,
     key: { exchange: EXCHANGE, symbol: series.symbol, timeframe },
     windowSeconds,
-    minElapsedSeconds: MIN_ELAPSED_SECONDS[timeframe],
     lookback: LOOKBACK_WINDOW_COUNT[timeframe],
     velocities,
     firstOrdinal,
@@ -173,14 +184,6 @@ export function extractCrossings(
         continue;
       }
 
-      const windowStartLocal = ordinal * frame.windowSeconds - startAbsSecond;
-      const elapsedSeconds = t - windowStartLocal + 1;
-
-      // 표본이 적어 속도가 발산하는 구간은 건너뛴다.
-      if (elapsedSeconds < frame.minElapsedSeconds) {
-        continue;
-      }
-
       if (frame.baselineOrdinal !== ordinal) {
         const lookbackSlice = frame.velocities.subarray(
           velocityIndex - frame.lookback,
@@ -195,24 +198,34 @@ export function extractCrossings(
         continue;
       }
 
+      // 트레일링 창. 경계에 맞춘 부분 창이 아니라 "지금부터 뒤로 W초"다.
+      //
+      // 예전에는 정렬된 창이 열린 뒤 경과분으로 나눠 속도를 외삽했다.
+      // 1분 프레임은 10초만 지나면 판정을 시작했으므로 그 10초에 6을 곱한
+      // 값을 완결 창들의 중앙값과 비교한 셈이고, 10초 표본의 분산이 훨씬
+      // 커서 평범한 거래가 상시 이상치로 읽혔다. 실측으로 경과 10초에서는
+      // 배수가 완결 봉 대비 4배 부풀려졌다.
+      //
+      // 트레일링 창은 언제 봐도 꽉 차 있으므로 외삽이 없고, 창이 리셋되는
+      // 사각지대도 없다.
+      const windowStartLocal = t + 1 - frame.windowSeconds;
       const quoteVolume =
         (prefix[t + 1] ?? 0) - (prefix[windowStartLocal] ?? 0);
-      const velocity = quoteVolume / (elapsedSeconds / 60);
+      const velocity = quoteVolume / (frame.windowSeconds / 60);
 
       const stats = perFrame[frame.timeframe];
       stats.evaluated += 1;
 
-      const score = computeScore(
-        {
-          key: frame.key,
-          openedAtMs: (startAbsSecond + windowStartLocal) * 1000,
-          evaluatedAtMs: atMs,
-          elapsedMinutes: elapsedSeconds / 60,
-          quoteVolume,
-          velocity,
-        },
-        baseline,
-      );
+      const window = {
+        key: frame.key,
+        openedAtMs: (startAbsSecond + windowStartLocal) * 1000,
+        evaluatedAtMs: atMs,
+        elapsedMinutes: frame.windowSeconds / 60,
+        quoteVolume,
+        velocity,
+      };
+
+      const score = computeScore(window, baseline);
 
       if (score === null) {
         stats.scoreUndefined += 1;
@@ -234,7 +247,11 @@ export function extractCrossings(
 
       scoredEvaluations += 1;
 
-      if (percentile < options.minPercentile) {
+      const ratio = ratioToMedian(window, baseline) ?? 0;
+
+      // 두 기준 중 하나라도 넘으면 담는다. 어느 쪽으로 판정할지 정하지
+      // 않았으므로 한쪽만 걸러 두면 다른 쪽을 측정할 수 없게 된다.
+      if (percentile < options.minPercentile && ratio < options.minRatio) {
         continue;
       }
 
@@ -243,8 +260,9 @@ export function extractCrossings(
         continue;
       }
 
-      // 거래대금을 같이 담는다. 하한을 뒤 단계에서 훑을 수 있어야 한다.
-      collector.push(t, frame.index, percentile, quoteVolume);
+      // 거래대금과 배수를 같이 담는다. 하한과 판정 방식을 뒤 단계에서
+      // 훑을 수 있어야 한다.
+      collector.push(t, frame.index, percentile, quoteVolume, ratio);
     }
   }
 

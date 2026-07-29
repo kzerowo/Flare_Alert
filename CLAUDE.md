@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-_Last updated: 2026-07-30 00:25_
+_Last updated: 2026-07-30 01:11_
 
 ## Project Overview
 
@@ -174,11 +174,17 @@ See `docs/deploy.md` for Vercel + Supabase setup, and Oracle Cloud detector depl
 ### Detection Pipeline
 
 ```
-Binance aggTrade WS → 1-second buckets → Per-frame rolling windows
-  → Median/MAD baseline + anomaly score S → Percentile conversion
-  → Sensitivity threshold → Filters (min turnover, warmup, cooldown)
-  → Identify scale (largest frame triggering) → Single alert per channel → Web Push dispatch
+Binance aggTrade WS → 1-second buckets → Per-frame TRAILING windows
+  → Median baseline (aligned completed windows) → ratio = velocity / median
+  → 15m frame only, ratio ≥ channel threshold → min-turnover + warmup filters
+  → Event-gap merge (one alert per event) → Web Push dispatch
 ```
+
+**Windows are trailing, not boundary-aligned partials.** The judged value is always "the last W seconds," so it is never extrapolated. The old design divided an aligned window's accumulated volume by elapsed minutes starting at `MIN_ELAPSED_SECONDS` — 10s for the 1m frame — which multiplied a 10-second sample by 6 and compared it against a distribution of completed windows. Measured on live alerts, that inflated the reported ratio ~4× at elapsed 10s (1.2× at 48s), so alerts fired where the chart showed nothing. `MIN_ELAPSED_SECONDS` is now unused by the detection path.
+
+**Only the 15m frame decides.** The other five are still computed, but only to label an alert's scale (the longest frame that also cleared the same ratio).
+
+**The threshold is a ratio, not a percentile.** "Turnover over the last 15 minutes is ≥ N× the median of the previous 32 such windows." This is the number the user can verify against a chart. `channels.sensitivity` still stores a percentile; `channelRatio()` converts percentile → slider → ratio at runtime. **Transitional** — retuning the ratio axis silently changes stored settings, so the schema should eventually store the ratio directly.
 
 Runs end-to-end: connects to Binance, primes from history, reads channels from Supabase, dispatches to subscribed browsers via Web Push, logs to DB, exposes `/health`.
 
@@ -188,7 +194,9 @@ Runs end-to-end: connects to Binance, primes from history, reads channels from S
 
 **Verification** (`pnpm --filter @flare-alert/detector verify`): replays recent days through the live pipeline classes (not the backtest's own code). Found a constant ~0.31 ratio between live-replay-at-1-minute-granularity and the 1-second backtest across a 30× range of sensitivities — a flat offset (not drift) means the threshold logic is correct and the gap is sampling granularity (1/60 as many evaluation points, plus 1m frame excluded), not a bug. **Treat verify counts as a floor, not a prediction** — confirming the absolute rate needs a real-time multi-day run.
 
-**Alert model**: alerts are per channel, not per frame. All six frames feed one percentile decision (max across frames); if it clears the threshold, one alert fires. Scale (largest triggering frame) is attached as display metadata only. Since each channel watches exactly one coin, every alert unambiguously names its trigger coin.
+**Alert model**: one alert per channel per event. The 15m frame's ratio is the only firing criterion. Scale is attached as display metadata only. Since each channel watches exactly one coin, every alert unambiguously names its trigger coin.
+
+**No cooldown.** `TimeDecayCooldown` tightened a percentile's tail fraction and cannot be carried over to a ratio; the event-gap merge already guarantees one alert per event. The class still exists in `core` (and the backtest's percentile path uses it) but the product path does not.
 
 ### Timeframes
 
@@ -204,16 +212,15 @@ A `Channel` = **one coin** + one sensitivity + delivery methods. Users have many
 
 ### Sensitivity Model
 
-**One alert per channel.** Timeframes are NOT an evaluation axis — the only firing criterion is sensitivity. Frames appear only as reference tick marks on the slider ("at this position, spikes of that size fire as often as they actually occur").
+The slider sets a **ratio**, not a percentile. Meaning: "alert when the last 15 minutes of turnover reaches N× the median of the previous 32 fifteen-minute windows."
 
-`FRAME_SCALE_PERCENTILE` places those marks by measuring actual event frequency per scale class, then binary-searching the slider position where channel alerts match that frequency (not by measuring per-frame signal percentile, which undercounts).
+- `RATIO_AT_SLIDER_MIN` 10 (slider 1, quiet) → `RATIO_AT_SLIDER_MAX` 1.5 (slider 100, frequent); logarithmic axis, since 1.5→2 matters and 9→10 does not.
+- `RATIO_DEFAULT` 4 sits at slider 49. Chosen from the user's own chart labels — see § Label-Based Measurement.
+- Slider tick marks are ratios (8/6/4/3/2), not frame names. Frame labels were removed: they claimed "at this position you catch 1분봉급 spikes," which stopped being true once detection became a single 15m window.
+- `estimateAlertsPerDay(sliderPosition)` interpolates `CHANNEL_RATE_CURVE`, remeasured under the ratio rule. The curve flattens above slider ~85 (≈11/day): below ~2× the signal sits above threshold almost continuously, so event-gap merging absorbs the extra crossings.
+- Exports: `sliderToRatio()`, `ratioToSlider()`, `sliderToPercentile()`, `percentileToSlider()`, `estimateAlertsPerDay()`, `SLIDER_MIN`, `SLIDER_MAX`
 
-- Meaning: "alert on the top (100 − sensitivity)% of observations." **Not an integer** — compressed into 99–100, UI must handle decimals.
-- `SENSITIVITY_MIN` 90, `SENSITIVITY_MAX` 99.995 (so the quiet end can reach day-scale event rates)
-- **Slider conversion** (`packages/core/src/sensitivity.ts`): UI shows integer positions 1–100 (rightward = more frequent); internal representation stays percentile, converted only in this module; logarithmic axis (tail fraction spans 0.01%–10%, three orders of magnitude).
-- `estimateAlertsPerDay(sliderPosition)` interpolates `CHANNEL_RATE_CURVE` for the slider preview (per channel, not per frame).
-- Scale labels above the slider: "1분봉급" (right/high sensitivity, short spikes) through "1일봉급" (left/low sensitivity, long strong events).
-- Exports: `sliderToPercentile()`, `percentileToSlider()`, `estimateAlertsPerDay()`, `SLIDER_MIN`, `SLIDER_MAX`
+`FRAME_SCALE_PERCENTILE` still exists but no longer drives anything.
 
 ### Delivery
 
@@ -245,25 +252,17 @@ Realtime (tab open) and Web Push (tab closed) are complementary, not duplicative
 
 | Constant | Value | Note |
 |---|---|---|
-| `SENSITIVITY_DEFAULT` | 99.9659 | Slider 26 (1-hour scale). Chosen by alert-quality measurement as the loosest setting clearing a pre-registered 2x lift bar — see § Alert Quality. |
-| `SENSITIVITY_MAX` | 99.995 | Left bound; tuned to reach ~0.64 alerts/day |
-| `FRAME_SCALE_PERCENTILE` | per-frame constants | Percentile at which each event-frequency class naturally fires at its labeled slider position |
-| `CHANNEL_RATE_CURVE` | single array | Alert frequency (per coin, per channel) at each slider position; measured on 6 symbols (BTC/ETH/SOL/ANKR/ONE/SHIB), 2026-04-01 to 2026-06-30 |
+| `DETECTION_TIMEFRAME` | `15m` | The only frame that fires alerts. Beat the 6-frame max on the user's labels (64%/74% vs. 39%/28%). |
+| `RATIO_DEFAULT` | 4 | Slider 49. ~4 alerts/day on majors. |
+| `SENSITIVITY_DEFAULT` | 99.8007 | The percentile that maps to slider 49 → 4×. Storage is still percentile-shaped; see § Detection Pipeline. |
+| `RATIO_AT_SLIDER_MIN` / `_MAX` | 10 / 1.5 | Slider ends, log axis |
+| `EVENT_GAP_SECONDS` | 300 | Silence below threshold that ends an event |
+| `CHANNEL_RATE_CURVE` | 20 values | Alerts/day per slider step; 6 symbols, 2026-04-01 to 2026-06-30, remeasured under the ratio rule |
+| `LOOKBACK_WINDOW_COUNT["15m"]` | 32 | The 8 hours the median baseline is drawn from |
 
-**Frame scale markers** (event frequency, not signal strength, at percentile 98):
+Ratio ↔ rate on BTC (61 days): 3× → 7.1/day, **4× → 3.9/day**, 5× → 2.4/day, 6× → 1.5/day. Small caps run 2–3× higher at the same setting (ANKR 10/day, ONE 12/day at 4×) because their own label-event rate is 8–10/day.
 
-| Frame | Events/day | Slider Position | Alerts/day |
-|---|---|---|---|
-| 1m | 16.2 | 72 | 16.6 |
-| 5m | 7.2 | 56 | 7.6 |
-| 15m | 3.7 | 43 | 3.8 |
-| 1h | 1.5 | 26 | 1.5 |
-| 4h | 0.7 | 8 | 0.7 |
-| 1d | 0.3 | 1 | 0.6 |
-
-Labels merge if tick positions differ by ≤4. `apps/backtest/src/event-scale.ts` measures both the scale markers (`measureScaleMarkers()`) and the channel rate curve (`measureChannelCurve()`).
-
-Still carrying `TODO(backtest)` in `constants.ts`: `LOOKBACK_WINDOW_COUNT`, `MIN_ELAPSED_SECONDS`, `MIN_QUOTE_VOLUME`, `COOLDOWN_DECAY_CURVE`, `COOLDOWN_TAIL_TIGHTENING`, `PERCENTILE_HISTORY_DAYS`, `MIN_PERCENTILE_SAMPLES`, `MAD_FLOOR_RATIO`. `MIN_QUOTE_VOLUME` is the most consequential — see § Turnover Floor below.
+Still `TODO(backtest)` in `constants.ts`: `LOOKBACK_WINDOW_COUNT`, `MIN_QUOTE_VOLUME`, `PERCENTILE_HISTORY_DAYS`, `MIN_PERCENTILE_SAMPLES`, `MAD_FLOOR_RATIO`. `MIN_ELAPSED_SECONDS` and the `COOLDOWN_*` constants are now dead for the detection path — kept only for the backtest's percentile comparison path.
 
 ## Common Development Commands
 
@@ -420,18 +419,24 @@ Every measurement before this used a yardstick the algorithm invented for itself
 
 `apps/backtest/src/label-fit.ts` scores any config against this: recall (labeled events caught), precision (alerts landing on labeled events), and latency (seconds from event start to first alert — recall alone can't see lateness, which was the user's actual complaint).
 
-**The current pipeline fits badly.** BTC, 61 days:
+**This is what drove the rewrite.** BTC, 61 days:
 
 | Config | Alerts/day | Recall | Precision |
 |---|---|---|---|
-| Slider 26 (default) | 2.7 | 25% | 44% |
-| Slider 43 | 6.7 | 39% | 28% |
-| Slider 72 | 31.1 | 60% | 12% |
-| **User's criterion implemented directly** | **6.7** | **98%** | **66%** |
+| Old: percentile, 6-frame max, slider 26 | 2.7 | 25% | 44% |
+| Old: percentile, 6-frame max, slider 43 | 6.7 | 39% | 28% |
+| **New: trailing 15m window, ratio 4×** | **3.9** | **64%** | **74%** |
+| User's criterion implemented directly (ceiling) | 6.7 | 98% | 66% |
+
+Fewer alerts, 1.6× the recall, 2.6× the precision. The ceiling row shares the label's window length and statistic so it flatters itself — but that is the point: the criterion is trivially computable, and the old pipeline was not computing it.
+
+Ratio choice on BTC: 3× → 63%/40%, **4× → 64%/74%**, 5× → 48%/93%, 6× → 29%/92%. Below 4× precision collapses; above it recall does.
+
+**Open: latency.** Median time from event start to first alert is ~460s (7.7 min) — a 15-minute trailing window cannot fill faster. The 5m frame reacts in ~120s but lands at 26% precision. The user's stated want ("it should have fired at 21:14") is faster than this.
 
 At an identical 6.7 alerts/day, directly computing "trailing 15-minute volume ÷ median of the last 32 such windows" gets **98% recall vs. 39%**. Holds on every symbol (recall 97–99%, precision 66–77%). The comparison flatters the reference — it shares the label's window length and statistic — but that is the point: the criterion is trivially computable and the elaborate pipeline is not computing it.
 
-**Multi-frame max is actively harmful.** Isolating single frames on BTC at ~4 alerts/day:
+**Multi-frame max was actively harmful.** Isolating single frames on BTC at ~4 alerts/day (percentile rule, pre-rewrite):
 
 | Frame | Alerts/day | Recall | Precision |
 |---|---|---|---|
@@ -442,7 +447,7 @@ At an identical 6.7 alerts/day, directly computing "trailing 15-minute volume ÷
 
 The 15m frame **alone** beats the 6-frame max (which gets 32%/34% at that rate). Taking the max across frames at one percentile lets the noisiest frame win — in production all 10 live alerts had scale 1m or 5m, never longer.
 
-**Suspected root cause: partial-window velocity.** Windows are judged on `quoteVolume / (elapsed/60)` from `MIN_ELAPSED_SECONDS` onward — 10s for 1m, 60s for 15m. Extrapolating 10 seconds to a minute (×6) or 60 seconds to 15 minutes (×15) produces far more variance than the completed-window baseline it is compared against. Measured on live alerts: at elapsed 10s the reported ratio was ~4× the completed candle's true ratio; at 48s, 1.2×.
+**Root cause, now fixed: partial-window velocity.** Windows were judged on `quoteVolume / (elapsed/60)` from `MIN_ELAPSED_SECONDS` onward — 10s for 1m, 60s for 15m. Extrapolating 10 seconds to a minute (×6) produces far more variance than the completed-window baseline it was compared against. Measured on live alerts: at elapsed 10s the reported ratio was ~4× the completed candle's true ratio; at 48s, 1.2×. `aggregator.test.ts` has a regression test pinning this ("짧은 버스트를 창 전체로 외삽하지 않는다").
 
 ## Event-Based Merge (fixed 2026-07-30)
 
@@ -452,15 +457,25 @@ The old rule let a small alert bury a larger event: on 2026-07-29 a 3.2× alert 
 
 **Aggregate effect is negligible** (BTC recall 25%→25% at slider 26). It fixes a real timing pathology but is not what is wrong with the detector. `engine.ts` keeps a `legacyThrottle` flag purely for this before/after comparison.
 
+## Ratio-Based Testing (2026-07-30)
+
+The label-based measurement discovered that the user's actual criterion is ratio-based: "alert when volume ≥ 4× the median of trailing windows." The percentile-based pipeline doesn't compute this directly. Added backtest instrumentation to evaluate ratio-based thresholds alongside percentiles:
+
+- **`engine.ts` `ratioThreshold` mode**: runs the same evaluation logic but compares `volume / medianVolume` against `ratioThreshold` instead of percentile against sensitivity. Disables cooldown (per-event merging already deduplicates). Tracks both `bestValue` (winning ratio) and `bestPercentile` (for comparison).
+- **`replay.ts` + `aggregator.ts`**: emit `ratios` array (volume relative to baseline) parallel to percentiles. Baseline uses boundary-aligned windows (epoch-aligned, no lookback offset) for stability; evaluation uses trailing windows (last 60s, etc.) for responsiveness.
+- **Methodology**: run both modes at identical rates (e.g., "~6.7 alerts/day") and compare recall/precision against the user's manually-labeled criterion.
+
+Expected outcome: if ratio mode outperforms percentile, the detector's core logic may pivot from percentile-based to ratio-based thresholds, with a simpler channel model (just "multiply by N" instead of "percentile slider").
+
 ## Known Gaps & Next Steps
 
-0. **Detection rule rebuild** — the open question that dominates everything else. Measured against the user's own criterion the current scoring (partial-window velocity → MAD → percentile → max across 6 frames) gets 39% recall where a direct trailing-window ratio gets 98% at the same alert rate. See § Label-Based Measurement. Decision needed on whether to replace the scoring core with a trailing-window ratio; note the reference implementation's median latency is ~400s from event start, which may itself need shortening.
-1. **Alert quality** — ✅ measured, hour-of-day confound controlled (2.08x corrected). **These numbers predate the label measurement and were computed with the old merge rule; re-run before relying on them.** Open: confirmation on 2–3 more symbols; hit-rate targets for a product callout.
+1. **Alert quality** — ✅ measured, hour-of-day confound controlled (2.08x corrected). Open: confirmation on 2–3 more symbols; hit-rate targets for a product callout.
 2. **`MIN_QUOTE_VOLUME`** — ✅ measurement infrastructure + two rounds of data (see § Turnover Floor). Open: the product decision on where/how to set the floor.
 3. **Detector pipeline** — ✅ complete end-to-end. Open: confirm alert rate with a multi-day real-time run; measure user retention/engagement.
-4. **Storage** — ✅ schema, auth, channel persistence, push subscriptions, alert logging, password reset. Open: alert retention policy (table grows unbounded).
-5. **Web UI** — ✅ MainApp, ChannelCard, ChannelForm, CoinIcon, AuthDialog + password reset, Web Push subscription, service worker, ko/en toggle, alert history view (all complete).
-6. **Deployment** — Vercel connected and building. `apps/detector/deploy/` (systemd unit + `setup.sh`) ready for Oracle Cloud; needs the user to provision a VM and run it. `NEXT_PUBLIC_VAPID_PUBLIC_KEY` still needs to be added to Vercel's env vars for push to work on the deployed site.
-7. **Backtest tools** — ✅ `event-scale.ts` (scale markers + channel rate curve), `quality.ts`, `hour-matched.ts`, `turnover.ts` all in place.
+4. **Ratio vs. percentile** — 🔄 backtest instrumentation in place (2026-07-30); ready for comparative evaluation.
+5. **Storage** — ✅ schema, auth, channel persistence, push subscriptions, alert logging, password reset. Open: alert retention policy (table grows unbounded).
+6. **Web UI** — ✅ MainApp, ChannelCard, ChannelForm, CoinIcon, AuthDialog + password reset, Web Push subscription, service worker, ko/en toggle, alert history view (all complete).
+7. **Deployment** — Vercel connected and building. `apps/detector/deploy/` (systemd unit + `setup.sh`) ready for Oracle Cloud; needs the user to provision a VM and run it. `NEXT_PUBLIC_VAPID_PUBLIC_KEY` still needs to be added to Vercel's env vars for push to work on the deployed site.
+8. **Backtest tools** — ✅ `event-scale.ts` (scale markers + channel rate curve), `quality.ts`, `hour-matched.ts`, `turnover.ts`, `label-fit.ts` (label-based scoring) all in place.
 
 Deferred until the web app is complete: mobile app development (React Native/Expo, iOS + Android).
