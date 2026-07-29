@@ -170,7 +170,7 @@ export interface QualityReport {
 
 export interface QualityOptions {
   sensitivity: number;
-  mergeWindowSeconds: number;
+  eventGapSeconds: number;
   cooldownScale: number;
   tightening: number;
 }
@@ -230,7 +230,7 @@ export function measureQuality(
   const alerts: EmittedAlert[] = [];
   evaluate(stream, {
     sensitivity: options.sensitivity,
-    mergeWindowSeconds: options.mergeWindowSeconds,
+    eventGapSeconds: options.eventGapSeconds,
     cooldownScale: options.cooldownScale,
     tightening: options.tightening,
     onAlert: (alert) => alerts.push(alert),

@@ -2,78 +2,66 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-_Last updated: 2026-07-29 22:26_
+_Last updated: 2026-07-30 00:25_
 
 ## Project Overview
 
-**Flare Alert** is an adaptive volume-spike alert service for cryptocurrency traders. Users create **channels**; each channel watches one coin at one sensitivity level. Unlike traditional alert systems that use fixed multipliers (e.g., "3x average"), thresholds are percentile-based and calibrated per coin, so the same sensitivity setting translates cleanly across coins of wildly different liquidity. Users create multiple channels to watch different coins or the same coin at different sensitivities.
+**Flare Alert** is an adaptive volume-spike alert service for cryptocurrency traders. Users create **channels**; each channel watches one coin at one sensitivity level. Thresholds are percentile-based and calibrated per coin (from each symbol's own score distribution), so a single sensitivity setting transfers across coins of wildly different liquidity, instead of a fixed multiplier that needs per-symbol tuning.
 
-**Core problem solved**: Fixed multipliers rarely fire on quiet coins and constantly on volatile ones, forcing manual per-symbol tuning. Percentile thresholds are derived from each symbol's own score distribution, so a single setting transfers across symbols. This was verified in backtesting (BTC 200.2 / ETH 193.1 / SOL 204.8 alerts per day at the same setting).
+**Percentiles do not make alert frequency predictable.** Evaluation runs every second, so "top 5% of seconds" is not "5% of events" — a single event crosses the threshold for hundreds of consecutive seconds. See `docs/algorithm.md` § 백테스트 결과.
 
-**Important correction**: percentiles do *not* make alert frequency predictable. Evaluation runs every second, so "top 5% of seconds" is not "5% of events" — a single event crosses the threshold for hundreds of consecutive seconds. See `docs/algorithm.md` § 백테스트 결과.
+Distribution is via **native mobile apps** (App Store/Play Store) once the web app is complete — not Telegram. Web Push (RFC 8291 + VAPID) is the current delivery mechanism; mobile push comes later.
 
 ## Tech Stack
 
 - **Monorepo**: pnpm workspaces (pnpm 11, Node ≥20)
 - **apps/web**: Next.js 15 (App Router) + React 19 + TypeScript + Tailwind CSS v4 → Vercel
-- **apps/detector**: Node.js (ES modules) + TypeScript → Railway/Fly.io (Tokyo region)
+- **apps/detector**: Node.js (ES modules) + TypeScript → Oracle Cloud free tier (planned)
 - **apps/backtest**: Offline parameter-tuning tool, never deployed
 - **packages/core**: Shared types, constants, and the statistical core
 
-## Design System (2026-07-29)
+## Design System
 
 **Design tokens** (`apps/web/src/app/globals.css` @theme):
-- **Colors** (Material 3 semantics): 6-layer backgrounds (sunken → surface → surface-low → card → surface-high → surface-highest); primary (#8ed5ff) for text/icons on dark backgrounds; primary-container (#38bdf8) for filled button backgrounds; state colors (danger, warm); outline shades for borders and dividers
-  - **Background layers darkened for crypto-dashboard aesthetic** (2026-07-29 update): all six background colors shifted significantly darker. Sunken now #020304, surface #030405, card #07090d, etc., to evoke a more crypto-trading-platform mood.
-  - **Button text on primary-container**: Raised contrast from #004965 (4.6:1) to #002030 (7.8:1) to meet legibility needs for 12px uppercase labels (2026-07-29)
-- **Spacing**: 5 scales (4px, 8px, 16px, 24px, 48px) in multiples of 4; **no named --spacing-* tokens** — conflicts with Tailwind v4's `max-w-*`, `w-*`, `h-*` resolution order. Use numeric scale directly: `xs=1`, `sm=2`, `md=4`, `lg=6`, `xl=12` (Tailwind default units).
-- **Typography**: 7 text styles (display, headline, title, body, body-sm, data, label) with paired line-height and letter-spacing
+- **Colors** (Material 3 semantics): 6-layer dark backgrounds (sunken `#020304` → surface `#030405` → surface-low `#090b0d` → card `#07090d` → surface-high `#121517` → surface-highest `#1a1d20`), deliberately dark for a crypto-trading-platform mood; primary `#8ed5ff` for text/icons on dark; primary-container `#38bdf8` for filled buttons (button text `#002030`, 7.8:1 contrast); state colors (danger, warm); outline shades for borders/dividers
+- **Spacing**: 5 scales (4/8/16/24/48px). **No named `--spacing-*` tokens** — conflicts with Tailwind v4's `max-w-*`/`w-*`/`h-*` resolution. Use the numeric scale directly: `xs=1, sm=2, md=4, lg=6, xl=12`.
+- **Typography**: 7 text styles (display, headline, title, body, body-sm, data, label) with paired line-height/letter-spacing
 - **Corners**: lg 0.5rem, xl 0.75rem
-- **Fonts**: Inter (variable) via `next/font` for UI text; JetBrains Mono (variable) for numerics (sensitivity, alert counts) to prevent layout shift when values change
+- **Fonts**: Inter (variable) for UI text; JetBrains Mono (variable) for numerics, to prevent layout shift when values change
 
-**Label styling** (`.label` CSS component, 2026-07-29 refactor):
-- Moved from global scope into `@layer components` to respect Tailwind v4 layer ordering (components layer > utilities layer)
-- No longer defines color — allows `text-*` utility classes to apply when needed (previously conflicted)
-- Used on 14+ label elements throughout UI with explicit `text-on-surface-variant` where gray is expected
-  - `AuthDialog` (2 form labels)
-  - `ChannelCard` (5 section headers)
-  - `ChannelForm` (4 labels)
-  - `SensitivitySlider` (3 labels)
+**`.label` component**: lives in `@layer components` (Tailwind v4 layer ordering) and defines no color, so `text-*` utilities apply cleanly.
 
-**Icons** (`apps/web/src/components/Icon.tsx`):
-- 14 inline SVG icons (plus, edit, trash, close, search, info, activity, chart, globe, send, mail, lock, arrow-right, bell)
-- No external font dependency; avoids loading delay and "more_vert" text flashing before font loads
-- Colors and weight follow `currentColor`
+**Icons** (`apps/web/src/components/Icon.tsx`): 14 inline SVGs, no external font dependency, follow `currentColor`.
 
-**Cursor** (`globals.css` `@layer base`, 2026-07-29): browsers default `button` to `cursor: default`, so hover felt dead. One base-layer rule gives `pointer` to enabled buttons/`[role=button]`/`summary`/checkbox labels and `not-allowed` to disabled ones. It sits in `@layer base` so per-element `cursor-*` utilities still win.
+**Cursor** (`globals.css` `@layer base`): one rule gives `pointer` to enabled buttons/`[role=button]`/`summary`/checkbox labels, `not-allowed` to disabled ones — browsers default `button` to `cursor: default`.
 
-## Localization (2026-07-29)
+## Localization
 
-Korean and English. `packages/core` is language-neutral — it returns numbers and discriminated unions, never sentences.
+Korean and English. `packages/core` is language-neutral — returns numbers and discriminated unions, never sentences.
 
-- **`apps/web/src/lib/locale.ts`** — `Locale`, `LOCALES`, `LOCALE_COOKIE`, `parseLocale`, `LOCALE_NAME`, `LOCALE_TAG`. **No `"use client"`.** Kept separate from the dictionary because `i18n.tsx` is a client module, and every export of a client module is unusable from a server component. `layout.tsx` reads the cookie on the server and needs `parseLocale` there.
-- **`apps/web/src/lib/i18n.tsx`** — dictionaries + `LocaleProvider` + `useT()`. `ko` is the source of truth; `en` is typed as `typeof ko`, so a phrase added only to Korean fails the build. Values that interpolate are functions, not templates — English pluralizes and Korean does not.
-  - **User-visible text switched from "coin" to "crypto"** (2026-07-29): All references to "코인" (Korean) and "Coin" (English) in UI strings have been changed to "크립토" and "Crypto" respectively. Internal component and variable names like `CoinIcon`, `symbolsLabel` remain unchanged.
-  - **Footer disclaimer updated** (2026-07-29): Removed outdated "detection engine not connected" message. Replaced with: "An alert only tells you liquidity gathered. It does not tell you whether the price will rise or fall — trading decisions are your own." This clarifies alert semantics (volume anomaly ≠ direction signal).
-- Components read `const t = useT()` and access fields directly (`t.form.cancel`). No string-key lookup, so typos are compile errors.
-- **Locale lives in a cookie**, not `localStorage`. The server must see it or the first paint renders Korean and then flips. `layout.tsx` and `generateMetadata()` both read it, which makes `/` a dynamic route — fine, the page is fully interactive anyway.
+- **`apps/web/src/lib/locale.ts`** — `Locale`, `LOCALES`, `LOCALE_COOKIE`, `parseLocale`, `LOCALE_NAME`, `LOCALE_TAG`. **No `"use client"`** — `layout.tsx` (a server component) needs `parseLocale`, and every export of a client module is unusable from a server component.
+- **`apps/web/src/lib/i18n.tsx`** — dictionaries + `LocaleProvider` + `useT()`. `ko` is the source of truth; `en` is typed as `typeof ko`, so a Korean-only addition fails the build. Interpolated values are functions, not templates.
+  - User-visible text uses "크립토"/"Crypto", not "코인"/"coin". Internal names (`CoinIcon`, `symbolsLabel`) are unaffected.
+  - Footer disclaimer: "An alert only tells you liquidity gathered. It does not tell you whether the price will rise or fall — trading decisions are your own."
+- Components read `const t = useT()` and access fields directly — no string-key lookup, so typos are compile errors.
+- **Locale lives in a cookie**, not `localStorage` — the server must see it on first paint. `layout.tsx` and `generateMetadata()` both read it, making `/` a dynamic route.
 
-Language-dependent formatting that used to live in core:
-- `describeAlertRate(perDay)` (core) returns `{kind: "never" | "everyNDays" | "perDay", ...}`; `formatAlertsPerDay(t, perDay)` (web) turns it into words. The thresholds (0.15 / 0.67 / 10) are language-independent logic and stay tested in core.
-- `validateChannel()` (core) returns `ChannelProblem[]`; `formatProblem(t, problem, limits)` (web) renders it. The detector will need these same problems in the *recipient's* language for Telegram, so core must not pick one.
-- `createChannel()` no longer defaults `name` to `"새 채널"` — it returns `""` and the form supplies `t.form.defaultName`.
+Language-dependent formatting lives in `web`, not `core`:
+- `describeAlertRate(perDay)` (core) → discriminated union; `formatAlertsPerDay(t, perDay)` (web) → words.
+- `validateChannel()` (core) → `ChannelProblem[]`; `formatProblem(t, problem, limits)` (web) → rendered text.
+- `createChannel()` returns `name: ""`; the form supplies `t.form.defaultName`.
 
-## Directory Structure
+## Asset Selection
 
-## Asset Selection (Crypto / 2026-07-29)
-
-`POPULAR_BINANCE_SYMBOLS` in `packages/core/src/channel.ts` lists exactly 13 symbols in descending market-cap order:
+`POPULAR_BINANCE_SYMBOLS` in `packages/core/src/channel.ts` lists 13 symbols, descending market-cap order:
 
 ```
 BTC, ETH, BNB, XRP, SOL, TRX, DOGE, XLM, ZEC, WBTC, WBETH, LINK, ADA
 ```
 
-**All are actively traded** on Binance USDT (status TRADING) as of 2026-07-29. (XMR was delisted; HYPE, BREAK, etc. are not listed.) **Coin icons** live in `apps/web/public/coins/` as lowercase SVG files (e.g., `btc.svg`); missing icons fall back to a color dot.
+All actively traded on Binance USDT. Coin icons live in `apps/web/public/coins/` as lowercase SVGs (e.g. `btc.svg`); missing icons fall back to a color dot.
+
+## Directory Structure
 
 ```
 ├── apps/
@@ -85,11 +73,13 @@ BTC, ETH, BNB, XRP, SOL, TRX, DOGE, XLM, ZEC, WBTC, WBETH, LINK, ADA
 │   │   └── src/
 │   │       ├── data.ts             # Load/concat prepared series
 │   │       ├── replay.ts           # Phase 1: extract threshold crossings
-│   │       ├── crossings.ts        # Crossing stream + disk cache (now includes quoteVolumes)
+│   │       ├── crossings.ts        # Crossing stream + disk cache (incl. quoteVolumes)
 │   │       ├── engine.ts           # Phase 2: sweep settings, single alert per channel
 │   │       ├── event-scale.ts      # Measure scale labels and channel rate curve
 │   │       ├── quality.ts          # Alert quality measurement (lift, hit-rate, direction)
-│   │       ├── turnover.ts         # Quote volume floor measurement (2026-07-29)
+│   │       ├── hour-matched.ts     # Hour-of-day confound correction
+│   │       ├── turnover.ts         # Quote volume floor measurement
+│   │       ├── label-fit.ts        # Score against the user's own criterion (recall/precision/latency)
 │   │       └── index.ts            # CLI entry + report
 │   ├── detector/          # Real-time detection (continuous process)
 │   │   └── src/
@@ -97,7 +87,7 @@ BTC, ETH, BNB, XRP, SOL, TRX, DOGE, XLM, ZEC, WBTC, WBETH, LINK, ADA
 │   │       ├── service.ts          # DetectorService: main loop, channel sync (1m), alert dispatch
 │   │       ├── store.ts            # Runtime channel state: load from Supabase, hot-add new symbols
 │   │       ├── push.ts             # Pusher: Web Push RFC 8291 encryption + dispatch, dead-sub cleanup
-│   │       ├── config.ts           # Env var loading and validation (now with VAPID keys)
+│   │       ├── config.ts           # Env var loading and validation (incl. VAPID keys)
 │   │       ├── vapid-keys.ts       # VAPID key loading from env or disk fallback
 │   │       ├── binance.ts          # REST (klines) + WS (aggTrade, auto-reconnect)
 │   │       ├── aggregator.ts       # 1-second buckets → rolling windows
@@ -109,77 +99,75 @@ BTC, ETH, BNB, XRP, SOL, TRX, DOGE, XLM, ZEC, WBTC, WBETH, LINK, ADA
 │   └── web/               # Dashboard & settings UI
 │       ├── public/
 │       │   ├── sw.js                # Service worker: register, cache, receive push messages
-│       │   └── coins/
-│       │       └── *.svg                      # Coin icons for top 13 Binance symbols (btc, eth, bnb, xrp, sol, trx, doge, xlm, zec, wbtc, wbeth, link, ada)
+│       │   └── coins/*.svg          # Coin icons for the 13 Binance symbols
 │       ├── src/app/
 │       │   ├── layout.tsx          # Reads locale cookie on the server, wraps LocaleProvider
-│       │   └── page.tsx            # AuthProvider > ChannelStoreProvider > MainApp
+│       │   └── page.tsx            # AuthProvider > ChannelStoreProvider > AlertStoreProvider > MainApp
 │       ├── src/middleware.ts       # Supabase session refresh (only place cookies can be written)
 │       ├── src/components/
-│       │   ├── MainApp.tsx                # App root: nav, hero, channel grid, error banner (now with tabbed channels/alerts view)
-│       │   ├── AlertHistory.tsx           # Alert history display with channel filtering and deletion (2026-07-29)
-│       │   ├── ChannelCard.tsx            # Display channel with edit/delete/toggle actions; history button (2026-07-29)
-│       │   ├── ChannelForm.tsx            # Create/edit channel UI with coin selection + sensitivity slider (single-coin radio group)
-│       │   ├── CoinIcon.tsx               # Coin symbol → SVG icon or fallback color dot (2026-07-29)
-│       │   ├── AuthDialog.tsx             # Login/signup against Supabase Auth
+│       │   ├── MainApp.tsx                # App root: nav, hero, tabbed channels/alerts view, error banner
+│       │   ├── AlertHistory.tsx           # Alert history display with channel filtering and deletion
+│       │   ├── ChannelCard.tsx            # Edit/delete/toggle actions; history button
+│       │   ├── ChannelForm.tsx            # Create/edit UI: single-coin radio group + sensitivity slider
+│       │   ├── CoinIcon.tsx               # Coin symbol → SVG icon or fallback color dot
+│       │   ├── AuthDialog.tsx             # Login/signup against Supabase Auth, incl. forgot-password
+│       │   ├── ResetPasswordDialog.tsx    # Password reset via PASSWORD_RECOVERY event
 │       │   ├── SensitivitySlider.tsx      # Interactive sensitivity control with frame-standard tick marks
 │       │   ├── LanguageToggle.tsx         # ko/en segmented control
-│       │   └── Icon.tsx                   # Inline SVG icons (14 icons, no external font dependency)
+│       │   └── Icon.tsx                   # Inline SVG icons
 │       └── src/lib/
 │           ├── locale.ts                  # Locale primitives — NO "use client" (server reads these)
 │           ├── i18n.tsx                   # Dictionaries + LocaleProvider + useT()
-│           ├── auth.tsx                   # AuthProvider over Supabase Auth
-│           ├── alerts.tsx                 # AlertStoreProvider: fetch alerts from Supabase + Realtime subscriptions (2026-07-29)
+│           ├── auth.tsx                   # AuthProvider over Supabase Auth, incl. password reset
+│           ├── alerts.tsx                 # AlertStoreProvider: fetch + Realtime subscription
 │           ├── channel-store.tsx          # Guest (sessionStorage) / member (Supabase) dual mode
 │           ├── push.ts                    # Web Push subscription: request permission, subscribe, persist
 │           └── supabase/
 │               ├── config.ts              # Env vars; isSupabaseConfigured(); VAPID_PUBLIC_KEY
 │               ├── client.ts              # Cached browser client (null when unconfigured)
 │               ├── server.ts              # Server-component client (read-only cookies)
-│               ├── types.ts               # Database types — `type`, not `interface`; PushSubscription row
+│               ├── types.ts               # Database types — `type`, not `interface`
 │               └── channels.ts            # Channel read/write against Supabase
 ├── packages/
 │   └── core/src/
 │       ├── types.ts            # Domain types + interfaces (Alert, AlertBuilder)
-│       ├── constants.ts        # Confirmed & pending-backtest parameters (FRAME_SCALE_PERCENTILE, CHANNEL_RATE_CURVE)
+│       ├── constants.ts        # Confirmed & pending-backtest parameters
 │       ├── math.ts             # median, MAD, quantile, percentile rank
 │       ├── score.ts            # Baseline (median/MAD) + anomaly score S
 │       ├── percentile.ts       # Histogram percentile estimator (Fenwick tree)
 │       ├── cooldown.ts         # Time-decay cooldown
-│       ├── sensitivity.ts      # Slider ↔ percentile conversion, single channel rate curve
-│       └── sensitivity.test.ts # Tests for slider/percentile round-trip and scale labels
-├── supabase/
-│   └── migrations/
-│       └── 0001_init.sql  # profiles / channels / channel_symbols + RLS
-├── docs/                  # Korean planning docs (algorithm/architecture/
-│                          #   research/decisions/deploy)
-├── data/                  # Backtest data — gitignored, ~1.2GB
-└── apps/web/vercel.json   # Vercel build config: monorepo build (core first, then web)
+│       ├── sensitivity.ts      # Slider ↔ percentile conversion, channel rate curve
+│       └── sensitivity.test.ts
+├── supabase/migrations/
+│   ├── 0001_init.sql            # profiles / channels / channel_symbols + RLS
+│   └── 0002_alerts_and_push.sql # push_subscriptions / alerts tables + RLS, drops Telegram
+├── apps/detector/deploy/        # systemd unit + setup.sh for Oracle Cloud deployment
+├── docs/                        # Korean planning docs (algorithm/architecture/research/decisions/deploy)
+├── data/                        # Backtest data — gitignored, ~1.2GB
+└── apps/web/vercel.json         # Vercel build config: monorepo build (core first, then web)
 ```
 
-## Storage (Supabase, 2026-07-29)
+## Storage (Supabase)
 
-Schema in `supabase/migrations/0001_init.sql` (base) and `0002_alerts_and_push.sql` (2026-07-29 additions). Five tables total (profiles, channels, channel_symbols, push_subscriptions, alerts); RLS on all of them.
+Five tables: profiles, channels, channel_symbols, push_subscriptions, alerts; RLS on all of them.
 
-**`channel_symbols` is a separate table, not an array column on `channels`.** The detector's per-second question is "which channels watch BTCUSDT" — a reverse lookup. An array or jsonb column can't be indexed for that, so every tick would scan all channels. The child table carries `(exchange, symbol)` index for exactly this path.
+**`channel_symbols` is a separate table, not an array column on `channels`.** The detector's per-second question is "which channels watch BTCUSDT" — a reverse lookup an array/jsonb column can't index. The child table carries an `(exchange, symbol)` index for exactly this path.
 
-**`sensitivity` stores the percentile, never the slider position.** The slider is a log-axis presentation; storing positions would silently change every user's setting if the axis is ever retuned.
+**`sensitivity` stores the percentile, never the slider position** — the slider is a log-axis presentation; storing positions would silently change every user's setting if the axis is retuned.
 
-**`push_subscriptions`** (2026-07-29): Stores browser subscription objects from the Web Push API. One row per browser that opted in. Columns: `endpoint` (primary key), `user_id`, `p256dh`, `auth` (both key components base64url-encoded), `label` (human-readable device identifier, e.g. "Chrome / Windows (localhost:3000)"), `created_at`, `last_success_at` (tracks last successful dispatch for dead-sub cleanup). The detector reads all of these and sends encrypted payloads to each endpoint. The `label` includes the subscription's origin (`window.location.host`) to distinguish subscriptions on different ports (e.g., localhost:3000 vs localhost:3002), solving duplicate notifications when the same user subscribes from multiple origins. Dead subscriptions (HTTP 404/410) are deleted on first failure.
+**`push_subscriptions`**: one row per browser that opted in. Columns: `endpoint` (PK), `user_id`, `p256dh`, `auth` (base64url), `label` (e.g. "Chrome / Windows (localhost:3000)" — includes origin because browsers treat different ports as different sites, so subscribing from two ports/origins creates two rows and duplicate notifications), `created_at`, `last_success_at`. Dead subscriptions (404/410) are deleted on first failure.
 
-**`alerts`** (2026-07-29): Immutable event log. Columns: `id`, `user_id` (duplicated from the channel for RLS filtering — Realtime subscriptions can only filter by a single table column), `channel_id`, `symbol`, `scale`, `price`, `ratio_to_median`, `quote_volume`, `percentile`, `score`, `fired_at`. One row per alert; never updated. Broadcast on Realtime for the web UI to display history. DB failure does not block push dispatch — alerts are logged best-effort.
+**`alerts`**: immutable event log. `id`, `user_id` (duplicated from the channel — Realtime filters on one column only), `channel_id`, `symbol`, `scale`, `price`, `ratio_to_median`, `quote_volume`, `percentile`, `score`, `fired_at`. Broadcast on Realtime for the web UI. DB failure does not block push dispatch — best-effort logging.
 
-**RLS is the only defense.** The web queries Supabase directly from the browser with the anon key — a public value. No API-route layer sits in between because there's nothing for it to protect that RLS doesn't. The detector uses `SUPABASE_SERVICE_ROLE_KEY`, which bypasses RLS; that key must never get a `NEXT_PUBLIC_` prefix.
+**RLS is the only defense.** The web queries Supabase directly with the anon key (public); no API-route layer sits in between. The detector uses `SUPABASE_SERVICE_ROLE_KEY` (bypasses RLS) — **must never carry a `NEXT_PUBLIC_` prefix, and must never be placed in `.env.example` or any git-tracked file, only `.env`.**
 
-**Missing env vars are not an error.** `isSupabaseConfigured()` returns false, clients return `null`, and the app runs guest-only. A fresh checkout works without a Supabase project.
+**Missing env vars are not an error** — `isSupabaseConfigured()` returns false, clients return `null`, app runs guest-only.
 
-**`apps/web/src/lib/supabase/types.ts` uses `type`, not `interface`.** supabase-js requires each table to satisfy `Record<string, unknown>`; interfaces don't get implicit index signatures, so the whole schema silently degrades to `never` and errors surface as the misleading `Property 'id' does not exist on type 'never'`.
+**`apps/web/src/lib/supabase/types.ts` uses `type`, not `interface`** — supabase-js requires each table to satisfy `Record<string, unknown>`; interfaces lack implicit index signatures and silently degrade the schema to `never`.
 
-Guest→member transition migrates sessionStorage channels into the account once, then clears sessionStorage. Writes are optimistic: local state updates first, the row write follows, and a failure rolls the state back and raises a `StoreProblem`.
+Guest→member transition migrates sessionStorage channels into the account once, then clears sessionStorage. Writes are optimistic (local state first, row write follows, failure rolls back + raises `StoreProblem`). Old sessionStorage may carry a `symbols` array shape; `normalizeChannel()` takes the first symbol and discards the rest.
 
-**Guest data migration** (2026-07-29): Before this change, channels had a `symbols` array. Browser sessionStorage from older versions may carry this shape. `normalizeChannel()` in `channel-store.tsx` detects it, takes the first symbol, and discards the rest. Guest data is session-scoped anyway, so no persistent migration was worth the code.
-
-See `docs/deploy.md` for the Vercel + Supabase setup procedure.
+See `docs/deploy.md` for Vercel + Supabase setup, and Oracle Cloud detector deployment.
 
 ## Key Concepts
 
@@ -192,167 +180,77 @@ Binance aggTrade WS → 1-second buckets → Per-frame rolling windows
   → Identify scale (largest frame triggering) → Single alert per channel → Web Push dispatch
 ```
 
-**The whole pipeline runs end-to-end as of 2026-07-29** — detector connects to Binance, primes itself from history, reads channels from Supabase, and dispatches to subscribed browsers via Web Push.
+Runs end-to-end: connects to Binance, primes from history, reads channels from Supabase, dispatches to subscribed browsers via Web Push, logs to DB, exposes `/health`.
 
-| Stage | Where | State |
-|---|---|---|
-| aggTrade ingestion, reconnect, gap repair | `binance.ts`, `backfill.ts` | ✅ |
-| 1s buckets → per-frame rolling windows | `aggregator.ts` | ✅ tested |
-| Median/MAD baseline → score S | `detect.ts` (via core) | ✅ |
-| Percentile conversion | `detect.ts` (via core) | ✅ |
-| Warmup + min-turnover filters | `aggregator.ts`, `detect.ts` | ✅ |
-| Threshold, cooldown, merge, scale | `channel-runtime.ts` | ✅ |
-| Channels loaded from Supabase | `store.ts` (reads every 1 min, hot-adds) | ✅ |
-| Web Push dispatch | `push.ts` (RFC 8291 encryption, graceful dead-sub cleanup) | ✅ |
-| Alerts logged to DB | `service.ts` (non-blocking, doesn't halt dispatch) | ✅ |
+**Cold start** (`backfill.ts`): a fresh process has no past, but the 1d frame needs 14 completed daily windows and the percentile needs ~2,930 samples before it can even resolve percentile 99.9659. Startup replays `BACKFILL_DAYS` (20) of 1-minute klines (~3s/symbol) to fill both.
 
-**Cold start is the hard part, and `backfill.ts` is where it's solved.** A fresh process has no past, but the 1d frame needs 14 completed daily windows for a baseline, and the percentile needs enough samples to even *resolve* the threshold — below ~2,930 samples no observation can reach percentile 99.9659, so the detector would sit silent rather than alert. Startup replays `BACKFILL_DAYS` (20) of 1-minute klines to fill both. Takes ~3s per symbol.
+**The 1m frame is excluded from backfill priming.** Minute-granularity replay only ever evaluates the 1m window at elapsed=60s (complete windows), but live it's judged at elapsed 10–60s where partial windows have much more velocity variance. Priming from complete windows alone yields a too-narrow distribution → inflated live percentiles → over-alerting. Longer frames don't have this problem (minute sampling is a uniform 1-in-60 subsample of their elapsed range). The 1m frame instead warms up live (~1 hour).
 
-**The 1m frame is deliberately excluded from backfill priming.** Replaying at 1-minute granularity only ever evaluates the 1m window at elapsed=60s (complete windows). Live, that frame is judged at elapsed 10–60s, and partial windows have far more velocity variance. Priming from complete windows alone yields a distribution that is too narrow, which inflates live percentiles and over-alerts. Longer frames don't have this problem — for the 1h frame, minute-granularity sampling is a uniform 1-in-60 subsample of the same elapsed range, so the shape is preserved. The 1m frame instead warms up live (~1 hour).
+**Verification** (`pnpm --filter @flare-alert/detector verify`): replays recent days through the live pipeline classes (not the backtest's own code). Found a constant ~0.31 ratio between live-replay-at-1-minute-granularity and the 1-second backtest across a 30× range of sensitivities — a flat offset (not drift) means the threshold logic is correct and the gap is sampling granularity (1/60 as many evaluation points, plus 1m frame excluded), not a bug. **Treat verify counts as a floor, not a prediction** — confirming the absolute rate needs a real-time multi-day run.
 
-### Verifying the detector against the backtest
-
-`pnpm --filter @flare-alert/detector verify` replays recent days through the *live* pipeline classes (not the backtest's own code) and prints every alert. Env: `VERIFY_DAYS`, `VERIFY_SENSITIVITY`, `DETECTOR_SYMBOLS`.
-
-First run, 2026-07-29, BTC/ETH/SOL over 5 days:
-
-| Slider | Backtest (1s replay) | Detector (1m replay) | Ratio |
-|---|---|---|---|
-| 26 (default) | 2.2 /day/coin | 0.67 /day/coin | 0.30 |
-| 72 | 24.4 /day/coin | 7.80 /day/coin | 0.32 |
-
-**The constant ratio is the result that matters.** Alert rate changed 30× between the two rows while the ratio held at ~0.31. A miscalibrated threshold would drift with sensitivity; a flat offset means the detector applies the same threshold the backtest measured, and the shortfall is the replay's sampling — 1/60 as many evaluation points, plus the 1m frame excluded (visible as an empty 1m bucket in the scale distribution). **Treat verify counts as a floor, not a prediction.** Confirming the absolute rate needs a real-time run over days.
-
-Qualitatively the alerts look right: S values of 30–160, volume 8–64× the median, and the 2026-07-26 22:00–22:02 cluster fired on BTC, ETH, and SOL within two minutes of each other — a market-wide event, correctly caught on three independently-calibrated symbols.
-
-**Alert model** (2026-07-27, clarified 2026-07-29): Alerts are **per channel**, not per frame. All six frames feed into a single percentile decision (maximum across frames). If it clears the threshold, one alert fires per channel. The scale (largest frame to trigger) is attached to the alert as metadata for labeling ("1-hour-class spike"), not as a dispatch mechanism. **Since each channel watches exactly one coin (2026-07-29), every alert unambiguously names its trigger coin.**
+**Alert model**: alerts are per channel, not per frame. All six frames feed one percentile decision (max across frames); if it clears the threshold, one alert fires. Scale (largest triggering frame) is attached as display metadata only. Since each channel watches exactly one coin, every alert unambiguously names its trigger coin.
 
 ### Timeframes
 
-Six timeframes evaluated in lockstep: `1m`, `5m`, `15m`, `1h`, `4h`, `1d`. Windows are aligned to absolute epoch boundaries so `1d` opens at UTC midnight. Candle close is never awaited — a 4h window that spikes 6 minutes in is judged on 6 minutes of velocity.
+Six timeframes in lockstep: `1m`, `5m`, `15m`, `1h`, `4h`, `1d`. Windows align to absolute epoch boundaries (`1d` opens at UTC midnight). Candle close is never awaited.
 
 ### Channel Model
 
-A `Channel` = **one coin** + one sensitivity + delivery methods (updated 2026-07-29). Users have many channels; the same coin may appear in several channels with different sensitivities.
+A `Channel` = **one coin** + one sensitivity + delivery methods. Users have many channels; the same coin may appear in several with different sensitivities. (Previously multi-coin per channel — reverted because a firing channel watching two coins couldn't show which one spiked.)
 
-**Why one coin per channel?** Previously, channels could hold multiple coins. But when a channel watching BTC and ETH fires, the UI showed both coin names and alert counts, making it unclear *which coin caused the spike*. Restructuring to 1-channel-1-coin makes the trigger coin always obvious in the card header.
+**Critical split**: score S and percentile are properties of a symbol/timeframe, independent of channels. Cooldown and scale detection are per channel (one channel firing must not silence another watching the same coin). The detector computes the expensive part once per symbol and applies each channel's threshold to the result. State keys are `ChannelSeriesKey`, not `SeriesKey`.
 
-**Critical split**: score S and percentile are *independent of channels* — they are properties of a symbol/timeframe, not of user settings. Cooldown and scale detection are *per channel* (one channel firing must not silence another watching the same coin). So the detector computes the expensive part once per symbol and applies each channel's threshold to the result. State keys are `ChannelSeriesKey`, not `SeriesKey`.
-
-**Alert output**: One alert per channel per symbol per event. The alert object contains:
-- `channelId` — which channel detected it
-- `scale` — the largest timeframe to trigger (1m–1d), used for display ("1시간봉급 급등")
-- `percentile`, `score`, `quoteVolume`, `ratioToMedian` — debugging and display
-
-No `strength` field; the alert happens or it doesn't. Frame counts are not aggregated into a "strength" metric.
-
-`apps/backtest` already has this shape (extract crossings once → sweep configs cheaply).
+**Alert output** carries `channelId`, `scale` (display label), `percentile`, `score`, `quoteVolume`, `ratioToMedian`. No `strength` field — the alert happens or it doesn't.
 
 ### Sensitivity Model
 
-**One alert per channel.** Timeframes are NOT an evaluation axis — the only firing criterion is sensitivity. Frames appear solely as reference tick marks on the slider, meaning "at this position, spikes of that size fire as often as they actually occur."
+**One alert per channel.** Timeframes are NOT an evaluation axis — the only firing criterion is sensitivity. Frames appear only as reference tick marks on the slider ("at this position, spikes of that size fire as often as they actually occur").
 
-`FRAME_SCALE_PERCENTILE` places those marks: 1m at slider 72 (rightmost, ~16.6 alerts/day) because 1m-or-larger events occur ~16.2 times per day; 1d at slider 1 (leftmost, ~0.6 alerts/day) because only ~0.3 such events occur daily. Each mark is the position where channel alerts precisely match the *frequency* of events in that scale class.
+`FRAME_SCALE_PERCENTILE` places those marks by measuring actual event frequency per scale class, then binary-searching the slider position where channel alerts match that frequency (not by measuring per-frame signal percentile, which undercounts).
 
-**Mechanism**: Event scale is defined as the longest timeframe whose signal crossed anomaly threshold during a merge window. Backtest counts how often each scale occurs, then binary-searches the slider to find the position where channel alerts match that frequency. This ensures the UI tick mark at 1m position will actually generate ~16.2 alerts per day when at 1m position, validating the label.
-
-**Historical note**: An earlier approach measured the *percentile (median signal)* of events within each scale class, yielding only ~9.4 daily alerts at the 1m position, mismatched to observed 15–20 range. The current method directly optimizes event frequency instead.
-
-An `Alert` carries `scale` (the longest anomalous timeframe) as a descriptive label — "1시간봉급 급등". It describes an alert; it never creates one.
-
-- Meaning: "alert on the top (100 − sensitivity)% of observations"
-- **Not an integer.** The useful range is compressed into 99–100, so the UI must handle decimals. Default is `99.887` (15-minute-scale rate, ≈3–4 alerts/day per coin in a channel).
-- `SENSITIVITY_MIN` 90, `SENSITIVITY_MAX` 99.995 (raised so the quiet end can reach day-scale event rates)
-
-**Slider conversion** (`packages/core/src/sensitivity.ts`):
-- UI displays integer positions 1–100, where rightward motion increases alert frequency
-- Internal representation remains percentile; conversion happens only in this module
-- Logarithmic axis: tail fraction ranges 0.01%–10% across three orders of magnitude, so linear division would collapse one end
-- Default 99.887 maps to slider position 36 (same as 15-minute scale)
-- **Alert frequency display** — the UI shows estimated alerts per day using:
-  - `estimateAlertsPerDay(sliderPosition)` — interpolates `CHANNEL_RATE_CURVE` to estimate alerts/day per coin
-  - Alerts are **per channel**, not split by frame; the curve represents a single channel watching one coin
-- **Scale labels** — above the slider at each marker position, showing which event size (1m–1d) that sensitivity would "naturally" catch if isolated:
-  - "1분봉급" (right side, high sensitivity): very short spikes need high thresholds to avoid false alarms
-  - "1일봉급" (left side, low sensitivity): large, long-lasting events have strong signals and trip at low thresholds
+- Meaning: "alert on the top (100 − sensitivity)% of observations." **Not an integer** — compressed into 99–100, UI must handle decimals.
+- `SENSITIVITY_MIN` 90, `SENSITIVITY_MAX` 99.995 (so the quiet end can reach day-scale event rates)
+- **Slider conversion** (`packages/core/src/sensitivity.ts`): UI shows integer positions 1–100 (rightward = more frequent); internal representation stays percentile, converted only in this module; logarithmic axis (tail fraction spans 0.01%–10%, three orders of magnitude).
+- `estimateAlertsPerDay(sliderPosition)` interpolates `CHANNEL_RATE_CURVE` for the slider preview (per channel, not per frame).
+- Scale labels above the slider: "1분봉급" (right/high sensitivity, short spikes) through "1일봉급" (left/low sensitivity, long strong events).
 - Exports: `sliderToPercentile()`, `percentileToSlider()`, `estimateAlertsPerDay()`, `SLIDER_MIN`, `SLIDER_MAX`
 
-### Delivery (updated 2026-07-29)
+### Delivery
 
-Per channel, any combination of `browser` and `web-push`.
+Per channel: `browser` (legacy Notification API, tab must be open — being phased out) and Web Push.
 
-**Web Push** (`apps/web/public/sw.js` service worker + `apps/detector/src/push.ts`):
-- Browser notifications work independently of whether a tab is open — service worker receives them even if the site is backgrounded (but not if the browser itself is closed)
-- Payload encrypted using RFC 8291 (ECDH P-256 + HKDF + AES128GCM) via the `web-push` library
-- Subscriptions stored in Supabase `push_subscriptions` table; detector reads and sends to all subscribed endpoints
-- Graceful handling of dead subscriptions: 404/410 HTTP responses trigger automatic deletion from the table
-- TTL set to 10 minutes (600 seconds) — events are time-sensitive and stale notifications are worse than none
+**Web Push** (`apps/web/public/sw.js` + `apps/detector/src/push.ts`): works even when no tab is open (browser must still be running). RFC 8291 encryption (ECDH P-256 + HKDF + AES128GCM) via the `web-push` library. Subscriptions in Supabase `push_subscriptions`; dead subscriptions (404/410) auto-deleted. TTL 600s (events are time-sensitive).
 
-**Browser notifications** (legacy, kept for compatibility):
-- In-page Notification API, only works **while a tab is open**
-- No service worker fallback; this path is being phased out in favor of Web Push
+### Alert History
 
-### Alert History (2026-07-29)
+Two tabs: **Channels** and **History**. Key behaviors:
 
-Alert history displays the detector's immutable `alerts` table records in the web UI. The interface is split across two tabs: **Channels** (channel management) and **History** (alert records).
+1. Switching to the alerts tab marks all unseen alerts as seen, clearing the badge.
+2. `AlertStoreProvider` fetches up to 50 newest alerts on mount, then subscribes to Realtime `INSERT` filtered by `user_id` at the Supabase level (not just RLS). New alerts prepend.
+3. A `seenIds` Set dedupes when the initial query and Realtime subscription overlap.
+4. Unseen count increments per Realtime INSERT, resets when the alerts tab opens; shown as a badge.
+5. History can be scoped to one channel via each `ChannelCard`'s history button; channel names are then omitted from rows (all identical). Falls back to "all" if the channel is deleted.
+6. Each alert shows absolute time (HH:MM:SS, static) and relative time (updates every 60s).
+7. Price precision adapts to magnitude: ≥100 → 2 decimals, ≥1 → 4 decimals, <1 → 8 decimals.
+8. Deletion is optimistic — UI removes immediately, then sends DELETE; failure doesn't restore the row.
+9. Empty states differ for guest (accounts required), load failure, and genuinely-empty (full list vs. single channel).
 
-**Key behaviors:**
-
-1. **Tab switching**: MainApp manages a `Tab` union that routes between channel list and alert history views. Switching to alerts marks all previously unseen alerts as seen, clearing the badge.
-
-2. **Realtime updates**: `AlertStoreProvider` queries `alerts` once on mount (fetching up to 50 newest records), then subscribes to `INSERT` events via Supabase Realtime. The subscription filters by `user_id` at the Supabase level (not just RLS) to avoid transmitting all rows and filtering client-side. New alerts prepend to the list.
-
-3. **Deduplication**: A `seenIds` Set tracks record IDs to prevent duplicates when the initial query and Realtime subscription overlap, or when Realtime delivers the same event twice.
-
-4. **Unseen count**: Incremented on each Realtime INSERT, reset when the alerts tab is opened. Displayed as a badge on the "History" tab button.
-
-5. **Channel filtering**: Alert history can be scoped to a single channel (via `onHistory` button on each ChannelCard). In this view, channel names are omitted from each alert item since they're all the same. A "Show all" button returns to the full list. If the channel is deleted, the view naturally falls back to showing all (the channel ID no longer matches).
-
-6. **Time display**: Each alert shows both absolute time (09:53:16) and relative time ("5 min ago"). Relative time updates every 60 seconds; absolute time is static. This dual display lets users correlate the alert with chart data at that exact moment while understanding recency.
-
-7. **Price formatting**: Precision is adaptive based on the coin's typical value:
-   - BTC (≥100): 2 decimal places
-   - ETH (≥1): 4 decimal places  
-   - SHIB, etc (<1): 8 decimal places
-   Prevents both underflow truncation and floating-point bloat.
-
-8. **Deletion**: Users can delete individual alert records. Deletion is optimistic: the UI removes the record immediately, then sends the DELETE. If the deletion fails (network error), the record stays gone from the UI anyway — recency and freshness matter more than completeness of a historical log.
-
-9. **Empty states**:
-   - Guest (not signed in): message explaining accounts are required
-   - Load failure: error banner
-   - No alerts yet: card with message, customized per context (full list vs. single channel)
-
-**Interaction with Web Push**: Realtime and push notifications complement each other—they do *not* duplicate:
-- **Tab open** (alerts history is visible): Realtime stream delivers new alerts, page updates live without refresh.
-- **Tab closed** (user is away): Realtime subscription ends, Web Push service worker handles notifications.
+Realtime (tab open) and Web Push (tab closed) are complementary, not duplicative — Realtime subscription ends when the tab isn't open, which is exactly when push takes over.
 
 ### Score Semantics
 
-`computeScore` returns `number | null`. `null` means MAD is 0 — the symbol traded at a constant (usually zero) rate across the whole lookback, so no meaningful score exists. Callers must not coerce this to a large number; dead altcoins would otherwise dominate the top of every alert list. This is common: 1m frames on ANKR/ONE return null 65–74% of the time.
+`computeScore` returns `number | null`. `null` means MAD is 0 — the symbol traded at a constant (usually zero) rate across the lookback, so no meaningful score exists. Callers must not coerce this to a large number, or dead altcoins would dominate every alert list. Common: 1m frames on ANKR/ONE return null 65–74% of the time.
 
 ## Parameters
 
-Confirmed by the first backtest (2026-07-27):
-
 | Constant | Value | Note |
 |---|---|---|
-| `SENSITIVITY_DEFAULT` | 99.9659 | Slider 26 (1-hour scale). Set by **alert-quality measurement** (2026-07-29), not frequency alone — see § Alert Quality. Default was 99.8743 (slider 43, 15-min scale), but quality measurement showed slider 26 is the loosest setting that clears the 2x lift bar. |
-| `SENSITIVITY_MAX` | 99.995 | Left bound; lower samples (60 per key) approach statistical noise limits; tuned to reach ~0.64 alerts/day |
-| `FRAME_SCALE_PERCENTILE` | per-frame constants | Percentile at which that event frequency would naturally fire at its labeled slider position |
-| `CHANNEL_RATE_CURVE` | single array | Alert frequency (per coin, per channel) at each slider position; measured 2026-04-01 to 2026-06-30 |
+| `SENSITIVITY_DEFAULT` | 99.9659 | Slider 26 (1-hour scale). Chosen by alert-quality measurement as the loosest setting clearing a pre-registered 2x lift bar — see § Alert Quality. |
+| `SENSITIVITY_MAX` | 99.995 | Left bound; tuned to reach ~0.64 alerts/day |
+| `FRAME_SCALE_PERCENTILE` | per-frame constants | Percentile at which each event-frequency class naturally fires at its labeled slider position |
+| `CHANNEL_RATE_CURVE` | single array | Alert frequency (per coin, per channel) at each slider position; measured on 6 symbols (BTC/ETH/SOL/ANKR/ONE/SHIB), 2026-04-01 to 2026-06-30 |
 
-**Event Scale Labeling & Alert Frequency** (`packages/core/src/constants.ts`):
-
-The backtest revealed that event size (1m spike vs. 1d spike) and event strength are independent. A sensitivity set for large events (low percentile) will catch all the small events too. So instead of per-frame alert budgets, the UI labels each slider position with the *smallest event size* it would typically catch in isolation.
-
-**Scale marker definition** (recalibrated 2026-07-28): "At this slider position, the channel will fire as often as events of that scale-or-larger actually occur." The 1-minute marker fires ~16.6 times per day because minute-scale-or-larger events occur about 16.2 times per day. Measurement counts actual event frequency (how many times that scale class or larger occurred) and uses binary search to find the slider position where channel alerts match that frequency.
-
-Prior method (discarded): measured the *median* of per-frame signals, which by definition caught only ~50% of events of that scale. This produced only 9.4 daily alerts at the 1m position, well below the sensed 15–20 range.
-
-Backtest measured two things:
-
-1. **Frame Scale Percentile** (`FRAME_SCALE_PERCENTILE`) — the percentile at which each timeframe's events (counted by frequency, not signal strength) would be caught at a specific slider position. A threshold placed so that "1-minute-scale-or-larger events per day" match "alerts per day" at that slider:
+**Frame scale markers** (event frequency, not signal strength, at percentile 98):
 
 | Frame | Events/day | Slider Position | Alerts/day |
 |---|---|---|---|
@@ -363,30 +261,15 @@ Backtest measured two things:
 | 4h | 0.7 | 8 | 0.7 |
 | 1d | 0.3 | 1 | 0.6 |
 
-The event threshold (percentile 98) is *not* derived from data—it is a tuning knob set to match observed chart behavior: "1-minute spikes should fire 15–20 times per day." Lowering from 99 to 98 shifted 1m from 12.6 to 16.2 alerts, into target range.
+Labels merge if tick positions differ by ≤4. `apps/backtest/src/event-scale.ts` measures both the scale markers (`measureScaleMarkers()`) and the channel rate curve (`measureChannelCurve()`).
 
-These serve as UI tick marks. Users see "1분봉급 / 5분봉급 / 15분봉급 / 1시간봉급 / 4시간봉급 / 1일봉급" at these positions, indicating event size, not dictating frame-specific behavior.
-
-2. **Channel Rate Curve** (`CHANNEL_RATE_CURVE`) — alert frequency per coin at each slider position (5–100 in 5-step increments). Single curve because alerts are per-channel, not per-frame. Measured on 6 symbols (BTC, ETH, SOL, ANKR, ONE, SHIB) from 2026-04-01 to 2026-06-30. Used by the web UI to show estimated alert rate at the current slider position.
-
-The curve values are interpolated linearly by `estimateAlertsPerDay(sliderPosition)` when rendering the slider preview.
-
-Labels merge if tick positions differ by ≤4. The file `apps/backtest/src/event-scale.ts` measures both the scale markers and the channel rate curve via `measureScaleMarkers()` (which counts events per frame) and `measureChannelCurve()` (which simulates channel alerts at each slider position).
-
-Confirmed by recalibration (2026-07-28):
-- **`FRAME_SCALE_PERCENTILE`** — All six timeframes now placed by event frequency, not signal percentile.
-- **`SENSITIVITY_MAX`** — Raised from 99.99 to 99.995 to accommodate day-scale events at the left edge.
-- **`SENSITIVITY_DEFAULT`** — was 99.8743 here; superseded 2026-07-29 by the quality measurement (now 99.9659). See § Alert Quality.
-
-Still carrying `TODO(backtest)` in `constants.ts`: `LOOKBACK_WINDOW_COUNT`, `MIN_ELAPSED_SECONDS`, `MIN_QUOTE_VOLUME`, `COOLDOWN_DECAY_CURVE`, `COOLDOWN_TAIL_TIGHTENING`, `PERCENTILE_HISTORY_DAYS`, `MIN_PERCENTILE_SAMPLES`, `MAD_FLOOR_RATIO`.
-
-`MIN_QUOTE_VOLUME` is the most urgent — it single-handedly determines small-cap behavior (2M rejections on ANKR/ONE vs 19 on BTC) and was set without evidence.
+Still carrying `TODO(backtest)` in `constants.ts`: `LOOKBACK_WINDOW_COUNT`, `MIN_ELAPSED_SECONDS`, `MIN_QUOTE_VOLUME`, `COOLDOWN_DECAY_CURVE`, `COOLDOWN_TAIL_TIGHTENING`, `PERCENTILE_HISTORY_DAYS`, `MIN_PERCENTILE_SAMPLES`, `MAD_FLOOR_RATIO`. `MIN_QUOTE_VOLUME` is the most consequential — see § Turnover Floor below.
 
 ## Common Development Commands
 
 ```bash
 pnpm install
-cp .env.example .env        # then fill TELEGRAM_BOT_TOKEN
+cp .env.example .env
 
 pnpm dev:web                # builds core, then next dev on :3000
 pnpm dev:detector           # builds core, then runs detector (live Binance)
@@ -403,11 +286,12 @@ pnpm clean
 pnpm --filter @flare-alert/detector build
 pnpm --filter @flare-alert/detector start    # live; ~9s boot, then prints alerts
 pnpm --filter @flare-alert/detector verify   # replay recent days, print every alert
+pnpm --filter @flare-alert/detector keys     # generate a VAPID key pair
 
 curl localhost:8080/health   # warmup state + percentile sample counts per frame
 ```
 
-`/health` returns 503 until backfill finishes, then 200 with per-symbol warmup and sample counts — use it to tell "quiet market" apart from "frame not awake yet". Neither command needs an API key or a `.env`; Binance's public endpoints need no auth.
+`/health` returns 503 until backfill finishes, then 200 with per-symbol warmup and sample counts. Neither command needs an API key or `.env` — Binance's public endpoints need no auth.
 
 ### Backtesting
 
@@ -418,132 +302,62 @@ pnpm --filter @flare-alert/backtest build
 pnpm --filter @flare-alert/backtest start         # extract + sweep
 ```
 
-Crossing extraction takes ~1 minute per symbol and is cached to `data/crossings/`. Subsequent runs sweep parameters in seconds. Bump `MAGIC` in `crossings.ts` if the cache format changes.
+Crossing extraction takes ~1 minute/symbol, cached to `data/crossings/`. Subsequent runs sweep parameters in seconds. Bump `MAGIC` in `crossings.ts` if the cache format changes (currently `FLARE-CROSSINGS-3`).
 
 ### Notes
 
-- `packages/core` is consumed via its built `dist/`, not source. Rebuild it after changing exports.
-- Tests are colocated as `*.test.ts` and run from `dist/` via `node --test "dist/**/*.test.js"`. Passing a bare directory to `node --test` does not discover them.
-- The `pnpm` PowerShell wrapper writes a NativeCommandError banner to stderr on Windows even when commands succeed. Judge by exit code, not that output.
+- `packages/core` is consumed via its built `dist/`, not source. Rebuild after changing exports.
+- Tests run from `dist/` via `node --test "dist/**/*.test.js"` — a bare directory won't discover them.
+- The `pnpm` PowerShell wrapper writes a NativeCommandError banner to stderr on Windows even on success. Judge by exit code.
 
 ## Architecture Decisions
 
-See `docs/decisions.md` (Korean) for full rationale. Twelve decisions recorded, including:
+See `docs/decisions.md` (Korean) for full rationale.
 
 1. Median/MAD instead of mean/stddev — a single spike drags a mean-based baseline up and mutes alerts for hours
-2. Percentile instead of multiplier — cross-symbol portability (frequency predictability was retracted after backtesting)
+2. Percentile instead of multiplier — cross-symbol portability
 3. aggTrade + 1s buckets instead of klines — kline streams delay detection by up to 60s
 4. Time-decay cooldown instead of "must exceed last alert" — the latter never resets after a big spike
-5. Channel-based sensitivity instead of per-symbol or account-wide — allows targeting different use cases (quiet majors vs aggressive altcoin hunting) without manual per-symbol tuning
-6. Single alert per channel (2026-07-27 update) — rather than merging alerts across multiple frames, take the maximum percentile across all six frames in parallel. If it exceeds the threshold, one alert fires. The scale (largest triggering frame) is attached for display, not used for dispatch logic.
-7. Cooldown multiplies the allowed tail fraction rather than adding to the percentile — adding overflows the 100 ceiling at high sensitivity and becomes a total mute
-8. Frame scale labels instead of per-frame alert rates — the UI shows which event size "naturally" catches at each slider position (determined by isolated binary search), but all frames feed into one alert decision
+5. Channel-based sensitivity instead of per-symbol or account-wide
+6. Single alert per channel — max percentile across all six frames in parallel; scale attached for display only
+7. Cooldown multiplies the allowed tail fraction rather than adding to the percentile — adding overflows the 100 ceiling at high sensitivity
+8. Frame scale labels instead of per-frame alert rates
 9. Fixed-bin histogram on an asinh axis with a Fenwick tree, not full sample retention
-10. Channel model with **channel-scoped** cooldown/scale detection but **symbol-scoped** score/percentile — expensive computation per symbol, threshold application per channel
-11. Browser notifications (Notification API while tab is open) + Telegram simultaneously per channel — covers both idle and away-from-desk cases
-12. Frames are reference labels on the sensitivity slider, not an evaluation axis — judgment uses only the maximum percentile across all six frames; scale (the largest triggering frame) is attached for display only
+10. Channel model: channel-scoped cooldown/scale detection, symbol-scoped score/percentile
+11. Web Push + in-page Notification API simultaneously per channel — covers both idle and away-from-tab cases
+12. Frames are reference labels on the sensitivity slider, not an evaluation axis
 
 ## Environment Variables
 
-From `.env.example`:
-
-- `TELEGRAM_BOT_TOKEN` — **temporarily optional** (2026-07-29). It was required, but dispatch isn't built yet and requiring it blocked verification runs. The detector warns and prints alerts to the console instead. Restore the hard requirement when the Telegram notifier lands.
-- `DETECTOR_SYMBOLS` — detector only; comma-separated (`BTCUSDT,ETHUSDT`). Defaults to BTC/ETH/SOL. Stands in until channels are read from Supabase; each symbol costs ~29 REST requests and ~3s at boot.
+- `DETECTOR_SYMBOLS` — detector only; comma-separated (`BTCUSDT,ETHUSDT`). Defaults to BTC/ETH/SOL. Stands in for standalone mode; each symbol costs ~29 REST requests and ~3s at boot.
 - `BINANCE_WS_URL` — defaults to `wss://stream.binance.com:9443/ws`
 - `PORT` — health-check HTTP port (default 8080)
 - `LOG_LEVEL` — `debug` | `info` | `warn` | `error`
+- `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` — detector; generate via `pnpm --filter @flare-alert/detector keys`
+- `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` — detector only; bypasses RLS, **never `NEXT_PUBLIC_`, never in `.env.example`**
 - `NEXT_PUBLIC_APP_URL` — web only, browser-exposed
-- `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` — web; **absence is handled**, the app falls back to guest-only
-- `SUPABASE_SERVICE_ROLE_KEY` — detector only; bypasses RLS, never `NEXT_PUBLIC_`
+- `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` — web; absence handled, falls back to guest-only
+- `NEXT_PUBLIC_VAPID_PUBLIC_KEY` — web; needed for push subscription to work
 
-Next.js reads `apps/web/.env.local`, not the root `.env`. The Supabase pair has to go in the former for `pnpm dev:web` to enable accounts.
+Next.js reads `apps/web/.env.local`, not the root `.env`. There is no Binance API key (public dumps and public WS need none).
 
-There is no Binance API key (public dumps and public WS need none).
+**Secrets belong only in `.env` (gitignored), never `.env.example` (git-tracked).** Scan every staged diff for secret patterns (`eyJhbGci`, `service_role`, `VAPID_PRIVATE_KEY=`, etc.) before committing.
 
 ## Testing
 
-`packages/core` has 72 tests (`node:test`, no framework dependency) covering math primitives, baseline/score edge cases, percentile accuracy against exact sorted ranks, day-based sample eviction, cooldown behavior, slider↔percentile round-trips, scale markers, and alert-rate description thresholds.
+`packages/core`: 72 tests (`node:test`) — math primitives, baseline/score edge cases, percentile accuracy vs. exact sorted ranks, day-based sample eviction, cooldown behavior, slider↔percentile round-trips, scale markers, alert-rate description thresholds.
 
-`apps/detector` has 11 tests covering window alignment to absolute epoch boundaries, elapsed-time gating, velocity computation, the late/early trade buffer, and — most importantly — that minute-granularity backfill and second-granularity live stepping produce identical windows. That last one is what lets cold-start priming share the live code path.
+`apps/detector`: 11 tests — window alignment to absolute epoch boundaries, elapsed-time gating, velocity computation, late/early trade buffer, and (most importantly) that minute-granularity backfill and second-granularity live stepping produce identical windows — this is what lets cold-start priming share the live code path.
 
-Not yet covered: dispatch (unimplemented), frame merging (lives in backtest), and the web app.
+Not yet covered: frame merging (lives in backtest), the web app.
 
-**Typecheck does not catch server/client boundary violations.** Calling a `"use client"` export from a server component compiles fine and fails at request time with a 500. After touching `layout.tsx` or anything it imports, actually load the page (`curl -s -o /dev/null -w "%{http_code}" http://localhost:3000`).
+**Typecheck does not catch server/client boundary violations.** Calling a `"use client"` export from a server component compiles fine and fails at request time with a 500. After touching `layout.tsx` or anything it imports, load the page (`curl -s -o /dev/null -w "%{http_code}" http://localhost:3000`).
 
-## Quote Volume Floor & Turnover Measurement (2026-07-29)
+## Turnover Floor (`MIN_QUOTE_VOLUME`) — measured, unresolved
 
-`MIN_QUOTE_VOLUME` (50,000 USDT in Binance constants) silently dominates small-cap behavior — without evidence. A signal that works perfectly on BTC/ETH may vanish on ANKR/ONE. The extraction now emits all alerts regardless of volume (extraction constant `EXTRACT_MIN_QUOTE_VOLUME = 0`), and a new `turnover.ts` module measures signal lift across logarithmic quote-volume buckets:
+`MIN_QUOTE_VOLUME` (50,000 USDT) silently determines small-cap behavior and was never validated. Extraction now emits all alerts regardless of volume (`EXTRACT_MIN_QUOTE_VOLUME = 0`); `CrossingStream` carries `quoteVolume` per crossing; `turnover.ts` measures lift (post-alert price movement vs. random-time same-symbol baseline) across log-spaced buckets (0–1K, 1K–5K, 5K–20K, 20K–50K, 50K–200K, 200K–1M, 1M–5M, 5M+), at both 1-minute and 5-minute horizons (5-minute needed because small-cap 1-minute baseline movement is exactly 0 — a random minute usually has no trades — making lift undefined at 1 minute).
 
-**Buckets**: 0–1K, 1K–5K, 5K–20K, 20K–50K, 50K–200K, 200K–1M, 1M–5M, 5M+.
-
-For each bucket, `measureTurnover()` computes:
-- Alert count
-- Median price movement post-alert (1-minute horizon)
-- Baseline price movement at random times (same symbol, same date)
-- Lift ratio (alert movement ÷ random movement; null if baseline is 0)
-
-**Workflow**:
-1. `extractCrossings()` with `minQuoteVolume: 0` produces a full crossing stream (no filtering).
-2. `CrossingStream` now includes a `quoteVolumes: Float32Array` parallel to percentiles, saved in the binary cache.
-3. `EmittedAlert` includes `quoteVolume` for each threshold crossing.
-4. CLI function `turnoverFloor()` measures and prints lift by bucket for all symbols, helping identify where the signal genuinely degrades.
-
-**Implementation notes**:
-- `buildBaseline()` (reused from quality.ts) caches random movement stats per symbol to avoid redundant computation.
-- Bucket labels are formatted human-readable (e.g., "50K~200K") via `bucketLabel()`.
-- A second pass aggregates totals across all symbols to spot system-wide patterns.
-
-This is a **measurement tool**, not a filter. The actual `MIN_QUOTE_VOLUME` default remains 50K for now, applied during channel evaluation.
-
-## Alert Quality (measured 2026-07-29)
-
-The first evidence that alerts mean anything. Everything before this only counted *how often* alerts fire.
-
-**Method** (`apps/backtest/src/quality.ts`, added 2026-07-29): for each alert at second `t`, measure the maximum absolute price excursion over the next 1/5/15/60 minutes, and compare against 20,000 random seconds from the *same symbol and period*. Baseline ('lift' denominator) is computed once per symbol using its full price history and cached to avoid redundant computation.
-
-**Absolute movement, not return.** Volume spikes have no direction — they fire on crashes too. Averaging signed returns cancels to ~0 and yields the same number whether the algorithm works or not. Measurement uses `Math.abs(price/base - 1)` to compare alert movements against random baseline movements.
-
-**Random sampling is seeded for reproducibility** — rebuilds produce identical results, so improved measurements can be distinguished from variation in random draws.
-
-**Result: the signal is real, and it responds monotonically to the threshold** (majors, 1-minute horizon):
-
-| Slider | Alerts/day | Lift vs random |
-|---|---|---|
-| 72 | 24.4 | 1.37x |
-| 43 | 5.5 | 1.78x |
-| 26 | 2.2 | **2.29x** ← new default |
-| 8 | 1.0 | 2.55x |
-| 1 | 0.8 | 2.88x |
-
-A noise-picking algorithm would sit flat near 1.0x at every threshold. It doesn't — so tightening buys real quality. **`SENSITIVITY_DEFAULT` moved from 99.8743 (slider 43) to 99.9659 (slider 26)**, the loosest point clearing the pre-registered 2x lift bar. This directly addresses the discovery that frequency and quality diverged: frequency peaked at slider 43, but quality peaks at slider 26.
-
-**Three findings that constrain the product:**
-
-1. **Direction is a coin flip** — 43–55% up across every symbol and horizon. This is a "something is happening" alert, never a "buy" signal. **UI copy saying 급등 (surge) is wrong** and still needs fixing.
-2. **The signal is short-lived.** Lift decays monotonically with horizon; BTC at the old default was 1.06x at 60 minutes — indistinguishable from noise. Volume spikes predict immediate movement, not trends.
-3. **Median moves are small relative to fees.** BTC alerts moved 0.06% (median, 1 min) at the old default — under a round-trip taker fee. Value lives in the tail (31–42% of alerts land in the top decile of random moves), and in volatile alts where absolute moves are 0.5–2%.
-
-**Hour-of-day confound correction** (2026-07-29): Alerts cluster in active trading hours while the random baseline samples uniformly, including quiet hours. Part of the measured lift may be time-of-day rather than signal. New module `apps/backtest/src/hour-matched.ts` — `buildHourlyBaseline()` and `measureHourMatched()` — draws baseline samples matched to the alert's UTC hour. Compares hour-matched lift against naive (24-hour uniform) baseline to quantify the confound. **Measured at −9% at the 1-minute horizon** — the signal survives. See § Hour-of-Day Confound Correction.
-
-**Small caps are unmeasurable right now** — ANKR and ONE produced 22 and 20 alerts in 61 days. `MIN_QUOTE_VOLUME` is silencing them, so their apparently high lift (3–4x) rests on no sample.
-
-**Implementation notes** (`apps/backtest/src/quality.ts`, `apps/backtest/src/index.ts` new `alertQuality` function):
-- `buildBaseline()` — compute min/max/median prices for each horizon on a per-symbol basis; called once and cached
-- `measureQuality()` — for a given crossing stream and symbol prices, extract alerts and measure lift/hit rate/directional bias
-- Random horizons (1/5/15/60 seconds) use seeded PRNG for reproducibility
-- Results printed as `lift | hit% | up%` for each horizon, breaking down by symbol as aggregates for majors
-
-## Turnover Floor (measured 2026-07-29)
-
-`MIN_QUOTE_VOLUME` was the longest-standing unmeasured parameter, and it single-handedly decides whether small caps work at all. **The reason it stayed unmeasured is that the backtest could not ask the question**: `replay.ts` applied the floor during extraction, so everything below it was discarded before any analysis could see it. Crossings now carry `quoteVolume` and extraction runs with no floor (`EXTRACT_MIN_QUOTE_VOLUME = 0`, cache `MAGIC` bumped to `FLARE-CROSSINGS-3`).
-
-**Method** (`apps/backtest/src/turnover.ts`): the same lift measurement as § Alert Quality, but alerts are bucketed by the window's accumulated quote volume. Buckets are log-spaced — turnover spans four orders of magnitude across symbols, so linear buckets collapse everything into one.
-
-**Measurement now runs at two horizons** (as of 2026-07-29): `turnoverFloor(dataDir, streams, manifest, horizonIndex)` accepts a horizon index (0 for 1-minute, 1 for 5-minute). The CLI calls it twice:
-- `turnoverFloor(..., 0)` measures lift at the 1-minute horizon (majors work cleanly here)
-- `turnoverFloor(..., 1)` measures lift at the 5-minute horizon (small-cap baseline is non-zero only here)
-
-**Result — lift rises monotonically with turnover** (majors, 1-minute horizon, slider 26):
+**Majors, 1-minute horizon, slider 26** — lift rises monotonically with turnover:
 
 | Window turnover | Alerts | Lift |
 |---|---|---|
@@ -553,132 +367,100 @@ A noise-picking algorithm would sit flat near 1.0x at every threshold. It doesn'
 | 1M–5M | 193 | 2.20x |
 | 5M+ | 173 | 3.17x |
 
-**The within-symbol trend is what makes this credible.** LINK alone runs 0.21x → 1.18x → 1.36x → 2.31x → 3.34x across the five buckets; BTC runs 1.17x → 2.74x. Since the baseline is computed per symbol, this cannot be explained by "big coins move more" — inside a single coin, higher-turnover alerts predict more movement than lower-turnover ones.
+This holds within-symbol too (e.g. LINK 0.21x→3.34x, BTC 1.17x→2.74x across its buckets), so it isn't just "big coins move more." **The current 50K floor is too low for majors** — it admits the near-noise 50K–200K band.
 
-**The current floor of 50,000 USDT is too low for majors.** It admits the 50K–200K band at 1.18x, which is close enough to 1.0 to be noise. Real signal starts around 200K.
+**Small caps (ANKR/ONE), 5-minute horizon**: below ~5K turnover, lift is ≈1.0x (noise) on every symbol measured — the floor is evidence-backed at the bottom end. Above 20K the small-cap buckets hold only 2–7 alerts each, too thin to place an exact boundary; don't read the 5-minute aggregate row as a trend (it's skewed by single outliers).
 
-**Small caps were initially unmeasurable — but only at the 1-minute horizon.** ANKR and ONE return `—` in every bucket there, because their random-baseline median 1-minute move is exactly 0: a randomly chosen minute usually has no trades at all, so lift is undefined rather than bad. **Stretching to a 5-minute horizon makes the baseline non-zero and the comparison possible.** This is why `turnoverFloor` now runs at both horizons.
+**What looked like a per-symbol quality difference (LINK 1.29x vs. ETH 2.90x) turned out to be turnover composition, not a symbol effect** — within a matched turnover bucket LINK is never the worst symbol; it just has 90% of its alerts in low-turnover buckets (vs. 0% for BTC) where every symbol is weak.
 
-**At 5 minutes, small-cap alerts below ~5K turnover carry no signal:**
+**Not yet decided** — a single absolute floor does two unrelated jobs ("is this tradeable" vs. "is this signal real") and can't satisfy both:
+- Raise toward 200K — best average quality, effectively drops small caps from the product
+- Scale the floor to each symbol's own typical turnover — fits the existing percentile philosophy, needs its own measurement
+- Keep it low and surface turnover in the UI — pushes the judgment to the user
 
-| Bucket | ANKR | ONE |
+`MIN_QUOTE_VOLUME` remains **50,000** pending this product decision. This is a decision for the user to make, not to be chosen unilaterally.
+
+## Alert Quality (measured)
+
+**Method** (`apps/backtest/src/quality.ts`): for each alert, measure max absolute price excursion over the next 1/5/15/60 minutes vs. 20,000 random seconds from the same symbol/period. Uses `Math.abs(price/base - 1)` (unsigned) because volume spikes have no direction — signed returns cancel to ~0 regardless of whether the algorithm works. Random sampling is seeded for reproducibility.
+
+**Result — signal responds monotonically to threshold** (majors, 1-minute horizon):
+
+| Slider | Alerts/day | Lift vs random |
 |---|---|---|
-| 0–1K | 0.00x (4) | 0.78x (4) |
-| 1K–5K | 1.03x (11) | 1.33x (32) |
-| 5K–20K | 1.36x (21) | 1.23x (44) |
-| 20K–50K | 3.46x (3) | 2.21x (4) |
-| 200K–1M | 3.64x (7) | 1.18x (4) |
+| 72 | 24.4 | 1.37x |
+| 43 | 5.5 | 1.78x |
+| 26 | 2.2 | 2.29x ← default |
+| 8 | 1.0 | 2.55x |
+| 1 | 0.8 | 2.88x |
 
-**This reverses the earlier conclusion.** The floor is not an unfounded penalty on small caps — below 5K their alerts really are noise (≈1.0x), and that is where most of ANKR's and ONE's alerts land. Filtering them is correct, not arbitrary.
+**Constraints this puts on the product:**
+1. **Direction is a coin flip** (43–55% up across symbols/horizons) — this is a "something is happening" alert, never a "buy" signal.
+2. **Signal is short-lived** — lift decays monotonically with horizon (BTC ~1.06x at 60 min, indistinguishable from noise).
+3. **Median moves are small relative to fees** — BTC median 1-min move was 0.06%, under a round-trip taker fee. Value lives in the tail (31–42% of alerts land in the top decile of random moves) and in volatile alts (0.5–2% moves).
 
-**But the exact value is still not located.** Above 20K the small-cap buckets hold 2–7 alerts each. Those numbers (3.46x, 2.21x, 3.64x) are too thin to place a boundary, and the 5-minute totals row is visibly corrupted by it — the `1M–5M` average of 4.57x is dragged there by a *single* ANKR alert at 15.39x. **Do not read the 5-minute totals row as a trend**; only the per-symbol low buckets, where n is 11–44, carry weight.
+**Hour-of-day confound** (`hour-matched.ts`): alerts cluster in active trading hours; the original baseline sampled uniformly across 24h. Rebuilding the baseline per UTC hour and comparing each alert only to its own hour:
 
-The 5-minute picture is also non-monotonic (20K–50K at 2.08x sits above 50K–200K at 1.63x), unlike the clean 1-minute progression. Small samples are the likely cause, but it means the two horizons should not be blended into one recommendation.
-
-### Where this leaves the floor
-
-Having a floor is now evidence-backed at the bottom end: below ~5K turnover alerts are noise on every symbol measured. What is *not* settled is where it should sit, because the two ends of the range disagree about what "too low" means.
-
-- **Majors (1-min horizon)**: real signal starts around 200K. The current 50K admits a 1.18x band that is close to noise.
-- **Small caps (5-min horizon)**: signal appears somewhere above 20K, but on 2–7 alerts per bucket. Raising the floor toward 200K would take ANKR from 49 alerts to ~8 and ONE from 95 to ~4 over 61 days.
-
-So a single absolute number is still doing two unrelated jobs — "is this tradeable" and "is this signal real" — and it cannot satisfy both. Options, none yet chosen:
-- **Raise toward 200K** — best average quality, effectively drops small caps from the product
-- **Scale the floor to the symbol's own typical turnover** — fits the percentile philosophy (every threshold already calibrates per symbol) and is the only option that treats both ends coherently; needs its own measurement
-- **Keep it low and surface turnover in the UI** — pushes the judgement to the user, who has no way to make it
-
-`MIN_QUOTE_VOLUME` is **unchanged at 50,000** pending that product decision. It is worth noting the current value is not badly placed for small caps — it sits just above their noise band — and is simply too low for majors.
-
-**Also still open:** measuring small caps needs a different baseline. A 1-minute horizon on a coin that trades a few times an hour cannot produce a meaningful random comparison; a longer horizon or a trade-count-matched baseline would be needed.
-
-## Hour-of-Day Confound Correction (2026-07-29)
-
-**Problem**: Alerts cluster in active trading hours (roughly 13:00–23:00 UTC for major cryptos) while the quality baseline sampled uniformly across all 24 hours. Since prices naturally move more during active hours regardless of volume spikes, the measured lift included an unknown time-of-day contribution.
-
-**Method** (`apps/backtest/src/hour-matched.ts`):
-- `buildHourlyBaseline()` — divides 20,000 random samples into 24 UTC hour buckets and computes per-hour movement distributions (one distribution per hour per horizon)
-- `measureHourMatched()` — for each alert, identifies its UTC hour, measures its price movement, and compares against the *hour-matched* baseline rather than the 24-hour uniform one. Reports both hour-matched lift and naive (uniform) lift side-by-side.
-
-**Result — the confound is real but small.** Averaged across symbols at the default sensitivity:
-
-| Horizon | Uniform baseline | Hour-matched | Change |
+| Horizon | Uniform | Hour-matched | Change |
 |---|---|---|---|
-| 1 min | 2.30x | **2.08x** | −9% |
+| 1 min | 2.30x | 2.08x | −9% |
 | 5 min | 1.66x | 1.66x | 0% |
 | 15 min | 1.44x | 1.48x | +3% |
 | 60 min | 1.39x | 1.28x | −8% |
 
-The earlier caveat — "true lift is probably lower than the table above" — was correct in direction but overstated in size. At most 9% of the measured lift was time-of-day, not the large inflation that was feared.
+The confound is real but small (≤9%). **`SENSITIVITY_DEFAULT` (slider 26) survives the pre-registered 2x bar at 2.08x, but with little margin** — loosening further would drop below 2x.
 
-**`SENSITIVITY_DEFAULT` survives, with less margin than believed.** Slider 26 was chosen as the loosest setting clearing a pre-registered 2x bar at the 1-minute horizon. Corrected, it sits at **2.08x** — over the bar, but barely. Loosening further would drop below 2x, so the default is now pinned tighter than the original 2.29x figure suggested.
+Known limitation: does not control for weekday/weekend or scheduled events (FOMC, etc.) — hour-of-day is the largest systematic bias identified so far.
 
-Per symbol at 1 minute (corrected): ETH 2.90x, BTC 2.08x, SOL 2.06x, **LINK 1.29x**. The spread across symbols is far larger than the confound — but see below, because most of it is not a symbol effect at all.
+## Label-Based Measurement — the detection rule is misaligned
 
-### The symbol spread is mostly turnover composition
+Every measurement before this used a yardstick the algorithm invented for itself (lift vs. random, alerts/day). On 2026-07-30 the user marked a BTC 15-minute chart with "this much volume should alert." Converting the marks to numbers gives the first external criterion:
 
-Cross-referencing the per-symbol lift against § Turnover Floor dissolves most of the apparent symbol variance. Lift by turnover bucket, per symbol:
+> **15m bar quote volume ≥ 4× the median of the previous 32 bars** — which occurs 4.17×/day, matching the ~4.2/day the user actually marked.
 
-| Bucket | BTC | ETH | LINK | SOL | Bucket avg |
-|---|---|---|---|---|---|
-| 20K–50K | — | — | 0.21x | — | 0.21x |
-| 50K–200K | — | — | 1.18x | — | 1.18x |
-| 200K–1M | — | 2.63x | 1.36x | 1.22x | 1.74x |
-| 1M–5M | 1.17x | 2.48x | 2.31x | 2.83x | 2.20x |
-| 5M+ | 2.74x | 4.24x | 3.34x | 2.36x | 3.17x |
+`apps/backtest/src/label-fit.ts` scores any config against this: recall (labeled events caught), precision (alerts landing on labeled events), and latency (seconds from event start to first alert — recall alone can't see lateness, which was the user's actual complaint).
 
-**Within a matched turnover bucket LINK is never last** — 2nd of 3 at 200K–1M, 3rd of 4 at 1M–5M, 2nd of 4 at 5M+. What differs is where each symbol's alerts land:
+**The current pipeline fits badly.** BTC, 61 days:
 
-| Symbol | Alerts below 1M turnover |
-|---|---|
-| BTC | 0% (0/159) |
-| ETH | 5% (6/111) |
-| SOL | 28% (34/121) |
-| **LINK** | **90% (124/138)** |
+| Config | Alerts/day | Recall | Precision |
+|---|---|---|---|
+| Slider 26 (default) | 2.7 | 25% | 44% |
+| Slider 43 | 6.7 | 39% | 28% |
+| Slider 72 | 31.1 | 60% | 12% |
+| **User's criterion implemented directly** | **6.7** | **98%** | **66%** |
 
-LINK's headline 1.19x is a composition effect: 90% of its alerts fire in low-turnover windows, where *every* symbol is weak. BTC never fires there at all, so its average is pulled up by construction.
+At an identical 6.7 alerts/day, directly computing "trailing 15-minute volume ÷ median of the last 32 such windows" gets **98% recall vs. 39%**. Holds on every symbol (recall 97–99%, precision 66–77%). The comparison flatters the reference — it shares the label's window length and statistic — but that is the point: the criterion is trivially computable and the elaborate pipeline is not computing it.
 
-**This unifies the two findings.** "Alerts are worse on some coins" and "alerts are worse at low turnover" are largely the same statement. It also strengthens the case for a turnover floor — the floor would specifically remove the alerts that make certain coins look bad, rather than penalizing those coins.
+**Multi-frame max is actively harmful.** Isolating single frames on BTC at ~4 alerts/day:
 
-The cost is stark though: a 1M floor would cut LINK from 138 alerts to 14. Those 14 are the good ones (2.31x and 3.34x), but a coin that fires 14 times in 61 days reads as broken to a user watching it.
+| Frame | Alerts/day | Recall | Precision |
+|---|---|---|---|
+| 1m (slider 26) | 2.0 | 17% | 38% |
+| 5m (slider 56) | 3.8 | 30% | 37% |
+| **15m (slider 72)** | **4.0** | **36%** | **41%** |
+| 1h (slider 72) | 1.2 | 19% | 63% |
 
-Residual symbol variance inside matched buckets is real but smaller (roughly 1.8–2.4x between best and worst) and is not yet explained.
+The 15m frame **alone** beats the 6-frame max (which gets 32%/34% at that rate). Taking the max across frames at one percentile lets the noisiest frame win — in production all 10 live alerts had scale 1m or 5m, never longer.
 
-Estimator note: with a flat baseline, "median of per-alert ratios" and "ratio of medians" are identical because the divisor is constant, so the uncorrected column reproduces the original method exactly. The hour-matched column necessarily uses median-of-ratios since each alert has its own divisor.
+**Suspected root cause: partial-window velocity.** Windows are judged on `quoteVolume / (elapsed/60)` from `MIN_ELAPSED_SECONDS` onward — 10s for 1m, 60s for 15m. Extrapolating 10 seconds to a minute (×6) or 60 seconds to 15 minutes (×15) produces far more variance than the completed-window baseline it is compared against. Measured on live alerts: at elapsed 10s the reported ratio was ~4× the completed candle's true ratio; at 48s, 1.2×.
 
-**Known limitation**: Does not control for weekday/weekend or major events (FOMC releases, etc.). Hour-of-day is the largest systematic bias in the sample distribution.
+## Event-Based Merge (fixed 2026-07-30)
+
+`EVENT_GAP_SECONDS` (was `FRAME_MERGE_WINDOW_SECONDS`, 900 → 300). The old rule muted for N seconds after the last **alert**; the new rule ends an event when the signal has been below threshold for N seconds, keying off the last **crossing**. One alert per event.
+
+The old rule let a small alert bury a larger event: on 2026-07-29 a 3.2× alert at 21:01:24 threw a 900s throttle, suppressed the genuinely larger 21:14 event, and released at 21:16:24 — exactly 900s later. `event-scale.ts`'s `collectEvents` already used the correct sliding-gap grouping; only the alert path diverged.
+
+**Aggregate effect is negligible** (BTC recall 25%→25% at slider 26). It fixes a real timing pathology but is not what is wrong with the detector. `engine.ts` keeps a `legacyThrottle` flag purely for this before/after comparison.
 
 ## Known Gaps & Next Steps
 
-1. **Alert quality — ✅ measured** (see above). New `quality.ts` backend supports any horizon and any symbol; currently reporting 1/5/15/60-second lift. **Hour-of-day confound — ✅ controlled**, −9% at 1 min, corrected default 2.08x (see § Hour-of-Day Confound Correction). Still open: quality confirmation on 2–3 additional symbols, and hit-rate targets (10%+ above-random clicks would justify a product callout).
-2. **`MIN_QUOTE_VOLUME` measurement** — ✅ infrastructure added (2026-07-29). New `turnover.ts` module measures alert lift in logarithmic quote-volume buckets (0–1K, 1K–5K, …, 5M+). Extraction no longer filters by this constant (set to 0 in `EXTRACT_MIN_QUOTE_VOLUME`), so the measurement can examine all volume tiers. Still to run: full backtest to determine optimal floor across all symbols.
-3. **Detector pipeline** — ✅ complete end-to-end (2026-07-29):
-   - ✅ Ingestion, aggregation, scoring, percentile, filters, cooldown/merge, scale
-   - ✅ Load channels from Supabase (every 1 minute, hot-add new symbols)
-   - ✅ Web Push dispatch (RFC 8291, graceful dead-subscription cleanup)
-   - ✅ Alert logging to database (non-blocking, doesn't halt dispatch)
-   - ✅ `/health` endpoint with warmup state + sample counts
-   - Still TODO: confirm the alert rate with a multi-day real-time run; measure actual user retention and engagement (see § Verifying the detector).
-4. **Storage** — ✅ schema, auth, channel persistence, push subscriptions, and alert logging (see § Storage).
-   - ✅ `push_subscriptions` table (created 2026-07-29)
-   - ✅ `alerts` table with Realtime broadcasting (created 2026-07-29)
-   - ✅ Password reset via email (2026-07-29): recovery flow triggered by PASSWORD_RECOVERY event, temporary session with reset dialog
-   - Still missing: Telegram linking flow (if we ever go back to dual-mode).
-5. **Web UI — Main page** (merged landing + channel creation):
-   - ✅ `MainApp` — guest/member split driven by real auth state
-   - ✅ `ChannelCard` — edit/delete/toggle channel actions; displays single coin in header with icon (2026-07-29)
-   - ✅ `ChannelForm` — create/edit UI with single-coin radio selection + `SensitivitySlider`; coin picker uses icons (2026-07-29)
-   - ✅ `CoinIcon` — renders SVG coin icon if available, falls back to color dot (2026-07-29)
-   - ✅ `AuthDialog` — functional email/password against Supabase Auth; "forgot password" flow (2026-07-29)
-   - ✅ `ResetPasswordDialog` (2026-07-29): Triggered by PASSWORD_RECOVERY event; sets new password with confirmation field; blocks closing via background click to prevent accidental dismissal (link gets consumed)
-   - ✅ Web Push subscription (2026-07-29): permission request, subscription creation, persistence to Supabase
-   - ✅ Service worker registration (`public/sw.js`): message handling, Notification display
-   - ✅ Korean/English toggle
-   - ✅ **Alert history view** (2026-07-29): Tabbed interface displaying detector's alert records with channel filtering, Realtime updates, and manual deletion
-6. **Deployment** — `vercel.json` (web) and `apps/detector/deploy/` (detector) are in place. Connecting Vercel and filling env vars is a manual account step; detector deployment to Oracle Cloud (free tier) or Railway is documented in `docs/deploy.md` with setup scripts provided (2026-07-29).
-7. **Backtest tools**:
-   - ✅ `apps/backtest/src/event-scale.ts`: Measures event-scale percentiles and channel rate curve (replaces `frame-standards.ts`)
-   - ✅ `FRAME_SCALE_PERCENTILE` and `CHANNEL_RATE_CURVE` published in constants
-8. **Alert quality measurement** (2026-07-29):
-   - ✅ `apps/backtest/src/quality.ts`: New module measuring lift/hit-rate/direction for any horizon and symbol
-   - ✅ `apps/backtest/src/index.ts` new `alertQuality()` function: CLI entry point for quality reports
-   - ✅ `SENSITIVITY_DEFAULT` updated from 99.8743 (slider 43) → 99.9659 (slider 26) based on 2x lift bar
+0. **Detection rule rebuild** — the open question that dominates everything else. Measured against the user's own criterion the current scoring (partial-window velocity → MAD → percentile → max across 6 frames) gets 39% recall where a direct trailing-window ratio gets 98% at the same alert rate. See § Label-Based Measurement. Decision needed on whether to replace the scoring core with a trailing-window ratio; note the reference implementation's median latency is ~400s from event start, which may itself need shortening.
+1. **Alert quality** — ✅ measured, hour-of-day confound controlled (2.08x corrected). **These numbers predate the label measurement and were computed with the old merge rule; re-run before relying on them.** Open: confirmation on 2–3 more symbols; hit-rate targets for a product callout.
+2. **`MIN_QUOTE_VOLUME`** — ✅ measurement infrastructure + two rounds of data (see § Turnover Floor). Open: the product decision on where/how to set the floor.
+3. **Detector pipeline** — ✅ complete end-to-end. Open: confirm alert rate with a multi-day real-time run; measure user retention/engagement.
+4. **Storage** — ✅ schema, auth, channel persistence, push subscriptions, alert logging, password reset. Open: alert retention policy (table grows unbounded).
+5. **Web UI** — ✅ MainApp, ChannelCard, ChannelForm, CoinIcon, AuthDialog + password reset, Web Push subscription, service worker, ko/en toggle, alert history view (all complete).
+6. **Deployment** — Vercel connected and building. `apps/detector/deploy/` (systemd unit + `setup.sh`) ready for Oracle Cloud; needs the user to provision a VM and run it. `NEXT_PUBLIC_VAPID_PUBLIC_KEY` still needs to be added to Vercel's env vars for push to work on the deployed site.
+7. **Backtest tools** — ✅ `event-scale.ts` (scale markers + channel rate curve), `quality.ts`, `hour-matched.ts`, `turnover.ts` all in place.
+
+Deferred until the web app is complete: mobile app development (React Native/Expo, iOS + Android).

@@ -91,7 +91,7 @@ export interface TurnoverReport {
 
 export interface TurnoverOptions {
   sensitivity: number;
-  mergeWindowSeconds: number;
+  eventGapSeconds: number;
   cooldownScale: number;
   tightening: number;
   /** 어느 지평으로 볼 것인가. HORIZONS의 인덱스. 기본은 1분. */
@@ -115,7 +115,7 @@ export function measureTurnover(
   const alerts: EmittedAlert[] = [];
   evaluate(stream, {
     sensitivity: options.sensitivity,
-    mergeWindowSeconds: options.mergeWindowSeconds,
+    eventGapSeconds: options.eventGapSeconds,
     cooldownScale: options.cooldownScale,
     tightening: options.tightening,
     onAlert: (alert) => alerts.push(alert),

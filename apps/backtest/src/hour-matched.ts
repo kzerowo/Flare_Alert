@@ -121,7 +121,7 @@ export interface HourMatchedResult {
 
 export interface HourMatchedOptions {
   sensitivity: number;
-  mergeWindowSeconds: number;
+  eventGapSeconds: number;
   cooldownScale: number;
   tightening: number;
 }
@@ -147,7 +147,7 @@ export function measureHourMatched(
   const alerts: EmittedAlert[] = [];
   evaluate(stream, {
     sensitivity: options.sensitivity,
-    mergeWindowSeconds: options.mergeWindowSeconds,
+    eventGapSeconds: options.eventGapSeconds,
     cooldownScale: options.cooldownScale,
     tightening: options.tightening,
     onAlert: (alert) => alerts.push(alert),

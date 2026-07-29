@@ -1,5 +1,5 @@
 import {
-  FRAME_MERGE_WINDOW_SECONDS,
+  EVENT_GAP_SECONDS,
   TIMEFRAMES,
   percentileToSlider,
   sliderToPercentile,
@@ -38,7 +38,7 @@ function collectEvents(
   anomalyReference: number,
 ): ScaledEvent[] {
   const events: ScaledEvent[] = [];
-  const mergeWindowMs = FRAME_MERGE_WINDOW_SECONDS * 1000;
+  const eventGapMs = EVENT_GAP_SECONDS * 1000;
   const startAbsSecond = Math.floor(stream.startMs / 1000);
 
   let openUntilMs = Number.NEGATIVE_INFINITY;
@@ -77,7 +77,7 @@ function collectEvents(
       currentSignal = percentile;
     }
 
-    openUntilMs = atMs + mergeWindowMs;
+    openUntilMs = atMs + eventGapMs;
   }
 
   flush();
@@ -216,7 +216,7 @@ export function measureChannelCurve(
     for (const stream of streams) {
       total += evaluate(stream, {
         sensitivity: percentile,
-        mergeWindowSeconds: FRAME_MERGE_WINDOW_SECONDS,
+        eventGapSeconds: EVENT_GAP_SECONDS,
         cooldownScale: 1,
         tightening: 5,
       }).alertsPerDay;

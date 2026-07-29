@@ -9,12 +9,13 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
-  FRAME_MERGE_WINDOW_SECONDS,
+  EVENT_GAP_SECONDS,
   FRAME_SCALE_PERCENTILE,
   MIN_QUOTE_VOLUME,
   SENSITIVITY_DEFAULT,
   TIMEFRAMES,
   percentileToSlider,
+  sliderToPercentile,
 } from "@flare-alert/core";
 
 import { loadCrossings, saveCrossings } from "./crossings.js";
@@ -25,6 +26,13 @@ import { loadManifest, loadPrices, loadSymbol, symbolsIn } from "./data.js";
 import { HORIZONS, buildBaseline, measureQuality } from "./quality.js";
 import { measureTurnover } from "./turnover.js";
 import { buildHourlyBaseline, measureHourMatched } from "./hour-matched.js";
+import {
+  LABEL_RATIO,
+  buildLabelEvents,
+  measureFit,
+  measureTrailingReference,
+} from "./label-fit.js";
+import type { LabelEvent } from "./label-fit.js";
 import type { Baseline } from "./quality.js";
 import { extractCrossings } from "./replay.js";
 
@@ -46,7 +54,7 @@ const SENSITIVITIES = [95, 99, 99.5, 99.9];
 const WARMUP_DAYS = 30;
 
 /** 훑을 파라미터 조합. */
-const MERGE_WINDOWS = [60, 300, 900, 1800];
+const EVENT_GAPS = [60, 120, 300, 600, 900];
 const COOLDOWN_SCALES = [1, 3, 10];
 const TIGHTENING = 5;
 
@@ -103,18 +111,18 @@ function sweep(streams: readonly CrossingStream[]): void {
     console.log("");
 
     const header =
-      pad("병합창", 9) +
+      pad("사건간격", 9) +
       pad("쿨다운", 9) +
       streams.map((s) => padStart(s.symbol.replace("USDT", ""), 9)).join("") +
       padStart("평균", 9);
     console.log(header);
 
-    for (const mergeWindow of MERGE_WINDOWS) {
+    for (const eventGap of EVENT_GAPS) {
       for (const scale of COOLDOWN_SCALES) {
         const results = streams.map((stream) =>
           evaluate(stream, {
             sensitivity,
-            mergeWindowSeconds: mergeWindow,
+            eventGapSeconds: eventGap,
             cooldownScale: scale,
             tightening: TIGHTENING,
           }),
@@ -124,7 +132,7 @@ function sweep(streams: readonly CrossingStream[]): void {
           results.reduce((sum, r) => sum + r.alertsPerDay, 0) / results.length;
 
         console.log(
-          pad(`${mergeWindow}초`, 9) +
+          pad(`${eventGap}초`, 9) +
             pad(`×${scale}`, 9) +
             results
               .map((r) => padStart(r.alertsPerDay.toFixed(1), 9))
@@ -250,7 +258,7 @@ async function alertQuality(
       entry.count,
       {
         sensitivity: SENSITIVITY_DEFAULT,
-        mergeWindowSeconds: FRAME_MERGE_WINDOW_SECONDS,
+        eventGapSeconds: EVENT_GAP_SECONDS,
         cooldownScale: 1,
         tightening: TIGHTENING,
       },
@@ -362,7 +370,7 @@ async function alertQuality(
         entry.count,
         {
           sensitivity,
-          mergeWindowSeconds: FRAME_MERGE_WINDOW_SECONDS,
+          eventGapSeconds: EVENT_GAP_SECONDS,
           cooldownScale: 1,
           tightening: TIGHTENING,
         },
@@ -436,7 +444,7 @@ async function turnoverFloor(
 
     const report = measureTurnover(stream, prices, built.baseline, {
       sensitivity: SENSITIVITY_DEFAULT,
-      mergeWindowSeconds: FRAME_MERGE_WINDOW_SECONDS,
+      eventGapSeconds: EVENT_GAP_SECONDS,
       cooldownScale: 3,
       tightening: TIGHTENING,
       horizonIndex,
@@ -533,7 +541,7 @@ async function hourConfound(
       startAbsSecond,
       {
         sensitivity: SENSITIVITY_DEFAULT,
-        mergeWindowSeconds: FRAME_MERGE_WINDOW_SECONDS,
+        eventGapSeconds: EVENT_GAP_SECONDS,
         cooldownScale: 3,
         tightening: TIGHTENING,
       },
@@ -595,6 +603,199 @@ async function hourConfound(
   }
 }
 
+/**
+ * 사용자 라벨을 정답으로 놓고 설정을 채점한다.
+ *
+ * 지금까지의 측정은 전부 알고리즘이 스스로 만든 잣대였다. 이건 처음으로
+ * 바깥에서 온 기준이다 — 사용자가 차트에 직접 표시한 "이 정도면 알림".
+ *
+ * 고친 판정(사건 경계)과 옛 판정(고정 스로틀)을 나란히 낸다. 알림 수만
+ * 보면 옛 쪽이 적어서 좋아 보일 수 있는데, 정작 무엇을 놓쳤는지는
+ * 재현율에서만 드러난다.
+ */
+async function labelFit(
+  dataDir: string,
+  streams: readonly CrossingStream[],
+  manifest: Awaited<ReturnType<typeof loadManifest>>,
+): Promise<void> {
+  console.log("");
+  console.log("═".repeat(78));
+  console.log(
+    `라벨 기준 채점 · 정답 = 15분봉 거래대금 ≥ 직전 32봉 중앙값 ×${LABEL_RATIO}`,
+  );
+
+  const sliders = [1, 8, 16, 26, 36, 43, 56, 72];
+  const events = new Map<string, LabelEvent[]>();
+  const reference = new Map<string, ReturnType<typeof measureTrailingReference>>();
+
+  console.log("");
+  console.log("정답 사건 수 / 기준을 그대로 구현했을 때(상한)");
+  console.log(
+    pad("종목", 10) +
+      padStart("사건", 7) +
+      padStart("하루", 7) +
+      "   │" +
+      padStart("알림/일", 9) +
+      padStart("재현율", 8) +
+      padStart("정밀도", 8) +
+      padStart("지연", 8),
+  );
+
+  for (const stream of streams) {
+    const series = await loadSymbol(dataDir, stream.symbol, manifest);
+    const list = buildLabelEvents(series.volumes);
+    events.set(stream.symbol, list);
+
+    // 사용자 기준을 중간 단계 없이 그대로 옮긴 규칙. 이게 못 잡는 것은
+    // 우리 점수 방식을 고쳐도 못 잡는다.
+    const ref = measureTrailingReference(series.volumes, list, stream.measuredDays, {
+      ratioThreshold: LABEL_RATIO,
+      eventGapSeconds: 300,
+    });
+    reference.set(stream.symbol, ref);
+
+    console.log(
+      pad(stream.symbol.replace("USDT", ""), 10) +
+        padStart(String(list.length), 7) +
+        padStart((list.length / stream.measuredDays).toFixed(2), 7) +
+        "   │" +
+        padStart(ref.alertsPerDay.toFixed(1), 9) +
+        padStart(`${(ref.recall * 100).toFixed(0)}%`, 8) +
+        padStart(`${(ref.precision * 100).toFixed(0)}%`, 8) +
+        padStart(`${ref.latencyMedian.toFixed(0)}초`, 8),
+    );
+  }
+
+  for (const stream of streams) {
+    const list = events.get(stream.symbol);
+    if (list === undefined || list.length === 0) {
+      continue;
+    }
+
+    console.log("");
+    console.log(`── ${stream.symbol} ──`);
+    console.log(
+      pad("슬라이더", 10) +
+        pad("사건간격", 10) +
+        padStart("알림/일", 9) +
+        padStart("재현율", 9) +
+        padStart("정밀도", 9) +
+        padStart("놓친배수", 10) +
+        padStart("지연", 9),
+    );
+
+    for (const slider of sliders) {
+      const sensitivity = sliderToPercentile(slider);
+      if (sensitivity < MIN_PERCENTILE) {
+        continue;
+      }
+
+      for (const gap of EVENT_GAPS) {
+        const fit = measureFit(stream, list, {
+          sensitivity,
+          eventGapSeconds: gap,
+          cooldownScale: 1,
+          tightening: TIGHTENING,
+        });
+
+        console.log(
+          pad(String(slider), 10) +
+            pad(`${gap}초`, 10) +
+            padStart(fit.alertsPerDay.toFixed(1), 9) +
+            padStart(`${(fit.recall * 100).toFixed(0)}%`, 9) +
+            padStart(`${(fit.precision * 100).toFixed(0)}%`, 9) +
+            padStart(fit.missedPeakMedian.toFixed(1), 10) +
+            padStart(`${fit.latencyMedian.toFixed(0)}초`, 9),
+        );
+      }
+    }
+  }
+
+  // ---- 프레임별 적합도 ----
+  //
+  // 지금은 6개 프레임의 백분위 중 최댓값으로 판정한다. 프레임마다 점수가
+  // 흔들리는 정도가 달라서, 같은 임계를 놓으면 가장 요동치는 프레임(1분)이
+  // 늘 이긴다. 실제로 실시간 알림 10건의 규모가 전부 1분·5분이었다.
+  //
+  // 사용자 기준은 15분봉이다. 프레임을 하나씩 격리해서 어느 것이 그 기준과
+  // 맞는지 본다. 15분 프레임 단독이 전체 최댓값보다 낫다면, 다중 프레임
+  // 최댓값 자체가 문제라는 뜻이다.
+  console.log("");
+  console.log("── 프레임 격리 (BTC, 사건간격 300초) ──");
+  console.log(
+    pad("프레임", 9) +
+      pad("슬라이더", 10) +
+      padStart("알림/일", 9) +
+      padStart("재현율", 9) +
+      padStart("정밀도", 9),
+  );
+
+  const btc = streams.find((s) => s.symbol === "BTCUSDT");
+  const btcEvents = btc === undefined ? undefined : events.get(btc.symbol);
+
+  if (btc !== undefined && btcEvents !== undefined) {
+    for (let frame = 0; frame < TIMEFRAMES.length; frame += 1) {
+      for (const slider of [26, 43, 56, 72]) {
+        const fit = measureFit(btc, btcEvents, {
+          sensitivity: sliderToPercentile(slider),
+          eventGapSeconds: 300,
+          cooldownScale: 1,
+          tightening: TIGHTENING,
+          onlyFrame: frame,
+        });
+        console.log(
+          pad(TIMEFRAMES[frame] ?? "?", 9) +
+            pad(String(slider), 10) +
+            padStart(fit.alertsPerDay.toFixed(1), 9) +
+            padStart(`${(fit.recall * 100).toFixed(0)}%`, 9) +
+            padStart(`${(fit.precision * 100).toFixed(0)}%`, 9),
+        );
+      }
+    }
+  }
+
+  // ---- 고치기 전과의 비교 ----
+  //
+  // 옛 판정은 900초 스로틀이었으므로 그 값으로 재현해야 한다. 새 판정의
+  // 사건 간격 300초와 숫자를 맞추면 비교가 되지 않는다.
+  console.log("");
+  console.log("── 판정 방식 비교 (옛=900초 스로틀 / 새=300초 사건간격) ──");
+  console.log(
+    pad("종목", 10) +
+      pad("슬라이더", 10) +
+      pad("방식", 12) +
+      padStart("알림/일", 9) +
+      padStart("재현율", 9) +
+      padStart("정밀도", 9),
+  );
+
+  for (const stream of streams) {
+    const list = events.get(stream.symbol);
+    if (list === undefined || list.length === 0) {
+      continue;
+    }
+    for (const slider of [26, 43]) {
+      for (const legacy of [true, false]) {
+        const fit = measureFit(stream, list, {
+          sensitivity: sliderToPercentile(slider),
+          eventGapSeconds: legacy ? 900 : 300,
+          cooldownScale: 1,
+          tightening: TIGHTENING,
+          legacyThrottle: legacy,
+        });
+        console.log(
+          pad(stream.symbol.replace("USDT", ""), 10) +
+            pad(String(slider), 10) +
+            pad(legacy ? "옛(스로틀)" : "새(사건)", 12) +
+            padStart(fit.alertsPerDay.toFixed(1), 9) +
+            padStart(`${(fit.recall * 100).toFixed(0)}%`, 9) +
+            padStart(`${(fit.precision * 100).toFixed(0)}%`, 9),
+        );
+      }
+    }
+  }
+}
+
 async function main(): Promise<void> {
   const here = path.dirname(fileURLToPath(import.meta.url));
   const dataDir = path.resolve(here, "../../../data/prepared");
@@ -616,12 +817,26 @@ async function main(): Promise<void> {
   console.log(`2단계 · 파라미터 스윕 (${streams[0]?.measuredDays.toFixed(0)}일 측정)`);
 
 
-  await alertQuality(dataDir, streams, manifest);
-  // 1분과 5분을 같이 본다. 1분에서는 소형주의 기준선이 0이라 측정이
-  // 안 되는데, 정작 거래대금 하한이 존재하는 이유가 그 소형주다.
-  await turnoverFloor(dataDir, streams, manifest, 0);
-  await turnoverFloor(dataDir, streams, manifest, 1);
-  await hourConfound(dataDir, streams, manifest);
+  // 단계를 골라 돌릴 수 있게 한다. 전부 돌리면 오래 걸리는데, 판정 로직을
+  // 고치는 동안에는 라벨 채점만 반복해서 보게 된다.
+  //   pnpm --filter @flare-alert/backtest start label
+  const stage = process.argv[2] ?? "all";
+
+  if (stage === "all" || stage === "label") {
+    await labelFit(dataDir, streams, manifest);
+  }
+  if (stage === "all" || stage === "quality") {
+    await alertQuality(dataDir, streams, manifest);
+  }
+  if (stage === "all" || stage === "turnover") {
+    // 1분과 5분을 같이 본다. 1분에서는 소형주의 기준선이 0이라 측정이
+    // 안 되는데, 정작 거래대금 하한이 존재하는 이유가 그 소형주다.
+    await turnoverFloor(dataDir, streams, manifest, 0);
+    await turnoverFloor(dataDir, streams, manifest, 1);
+  }
+  if (stage === "all" || stage === "hour") {
+    await hourConfound(dataDir, streams, manifest);
+  }
 }
 
 main().catch((error: unknown) => {

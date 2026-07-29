@@ -10,8 +10,11 @@ import type { CrossingStream } from "./crossings.js";
 
 export interface EngineConfig {
   sensitivity: number;
-  /** 같은 종목의 후속 교차를 하나의 알림으로 흡수하는 시간(초). */
-  mergeWindowSeconds: number;
+  /**
+   * 신호가 임계 아래로 이만큼 내려가 있으면 사건이 끝난 것으로 본다(초).
+   * 직전 알림이 아니라 직전 교차를 기준으로 잰다 — 이유는 EVENT_GAP_SECONDS 주석.
+   */
+  eventGapSeconds: number;
   /** 쿨다운 기본 지속시간에 곱할 배수. */
   cooldownScale: number;
   /** 알림 직후 허용 꼬리 비율을 조이는 배수. */
@@ -22,6 +25,15 @@ export interface EngineConfig {
    * "1분봉 기준으로는 어느 민감도가 적당한가"를 알려면 프레임을 격리해야 한다.
    */
   onlyFrame?: number;
+
+  /**
+   * 고치기 전의 판정을 재현한다. 비교 측정에만 쓰고 제품 경로에서는 쓰지 않는다.
+   *
+   * 이전에는 사건 경계가 아니라 "마지막 알림으로부터 N초"라는 고정 스로틀이었다.
+   * 그래서 작은 사건에 알림을 써버리면 그 안에 들어온 더 큰 사건이 통째로
+   * 묻혔다. 고친 효과를 숫자로 보이려면 옛 동작을 돌려볼 수 있어야 한다.
+   */
+  legacyThrottle?: boolean;
 
   /**
    * 알림이 실제로 나갈 때마다 부른다.
@@ -122,6 +134,12 @@ export function evaluate(
   let alerts = 0;
   let strengthSum = 0;
 
+  // 사건 경계는 "마지막으로 임계를 넘은 시각"으로 잰다. 쿨다운에 막혔더라도
+  // 임계를 넘었으면 사건은 이어지는 중이다.
+  let lastAboveAtMs = Number.NEGATIVE_INFINITY;
+  /** 지금 사건에서 이미 알림이 나갔는가. 사건 하나에 알림 하나. */
+  let firedThisEvent = false;
+  /** legacyThrottle 비교용. 옛 판정이 쓰던 기준점이다. */
   let lastAlertAtMs = Number.NEGATIVE_INFINITY;
   let openFrameMask = 0;
 
@@ -150,6 +168,9 @@ export function evaluate(
     let bestFrame = -1;
     let bestQuoteVolume = 0;
 
+    // 사건 경계 판정은 이 초를 반영하기 "전"의 값으로 해야 한다.
+    const isNewEvent = atMs - lastAboveAtMs > config.eventGapSeconds * 1000;
+
     for (let j = i; j < end; j += 1) {
       const frameIndex = stream.frames[j] ?? 0;
 
@@ -163,6 +184,7 @@ export function evaluate(
       }
 
       rawCrossings += 1;
+      lastAboveAtMs = atMs;
 
       const key = keys[frameIndex];
       if (key === undefined) {
@@ -192,15 +214,24 @@ export function evaluate(
 
     i = end;
 
+    // 사건이 새로 시작했으면 발사 권리도 새로 생긴다. 이 초에 쿨다운으로
+    // 아무것도 통과하지 못했더라도 리셋해 둬야, 사건 도중 쿨다운이 풀렸을 때
+    // 그 사건의 첫 알림이 제대로 나간다.
+    if (isNewEvent) {
+      firedThisEvent = false;
+    }
+
     if (passedMask === 0) {
       continue;
     }
 
-    const withinMergeWindow =
-      atMs - lastAlertAtMs < config.mergeWindowSeconds * 1000;
+    const suppressed =
+      config.legacyThrottle === true
+        ? atMs - lastAlertAtMs < config.eventGapSeconds * 1000
+        : firedThisEvent;
 
-    if (withinMergeWindow) {
-      // 같은 사건으로 보고 기존 알림에 흡수한다. 새 알림을 만들지 않는다.
+    if (suppressed) {
+      // 같은 사건이 계속 임계를 넘는 중이다. 이미 나간 알림에 흡수한다.
       mergedIntoExisting += popcount(passedMask);
       openFrameMask |= passedMask;
       continue;
@@ -224,6 +255,7 @@ export function evaluate(
 
     alerts += 1;
     openFrameMask = passedMask;
+    firedThisEvent = true;
     lastAlertAtMs = atMs;
   }
 

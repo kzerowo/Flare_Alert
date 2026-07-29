@@ -8,7 +8,7 @@
 // 알림 빈도와 품질을 쟀으므로 조금이라도 다르면 그 수치가 의미를 잃는다.
 
 import {
-  FRAME_MERGE_WINDOW_SECONDS,
+  EVENT_GAP_SECONDS,
   TIMEFRAMES,
   TimeDecayCooldown,
 } from "@flare-alert/core";
@@ -42,31 +42,41 @@ function nextAlertId(): string {
   return `alert-${Date.now().toString(36)}-${alertSequence.toString(36)}`;
 }
 
+/** 설정 교체 시에도 넘겨야 하는 판정 상태. */
+interface InheritedState {
+  cooldown: TimeDecayCooldown;
+  /** 마지막으로 임계를 넘은 시각 */
+  lastAboveAtMs: number;
+  /** 지금 사건에서 이미 알림이 나갔는가 */
+  firedThisEvent: boolean;
+}
+
 export class ChannelRuntime {
   readonly channel: Channel;
   readonly #cooldown: TimeDecayCooldown;
-  #lastAlertAtMs: number;
+  /** 사건 경계 판정 기준. 알림 시각이 아니라 교차 시각이다. */
+  #lastAboveAtMs: number;
+  #firedThisEvent: boolean;
 
-  constructor(
-    channel: Channel,
-    inherited?: { cooldown: TimeDecayCooldown; lastAlertAtMs: number },
-  ) {
+  constructor(channel: Channel, inherited?: InheritedState) {
     this.channel = channel;
     this.#cooldown = inherited?.cooldown ?? new TimeDecayCooldown();
-    this.#lastAlertAtMs = inherited?.lastAlertAtMs ?? Number.NEGATIVE_INFINITY;
+    this.#lastAboveAtMs = inherited?.lastAboveAtMs ?? Number.NEGATIVE_INFINITY;
+    this.#firedThisEvent = inherited?.firedThisEvent ?? false;
   }
 
   /**
    * 설정만 갈아끼운 새 상태를 만든다.
    *
-   * 쿨다운과 마지막 알림 시각을 넘겨받는 것이 요점이다. 채널 목록을 다시
-   * 읽을 때마다 새로 만들면 그 둘이 초기화되어, 방금 울린 사건이 1분 뒤에
+   * 쿨다운과 사건 상태를 넘겨받는 것이 요점이다. 채널 목록을 다시 읽을
+   * 때마다 새로 만들면 그것들이 초기화되어, 방금 울린 사건이 1분 뒤에
    * 또 울린다.
    */
   withChannel(channel: Channel): ChannelRuntime {
     return new ChannelRuntime(channel, {
       cooldown: this.#cooldown,
-      lastAlertAtMs: this.#lastAlertAtMs,
+      lastAboveAtMs: this.#lastAboveAtMs,
+      firedThisEvent: this.#firedThisEvent,
     });
   }
 
@@ -89,10 +99,16 @@ export class ChannelRuntime {
     let scale: Timeframe | null = null;
     let passed = 0;
 
+    // 사건 경계 판정은 이 초를 반영하기 "전"의 값으로 해야 한다.
+    const isNewEvent = atMs - this.#lastAboveAtMs > EVENT_GAP_SECONDS * 1000;
+
     for (const signal of signals) {
       if (signal.percentile < sensitivity) {
         continue;
       }
+
+      // 쿨다운에 막히더라도 임계를 넘었으면 사건은 이어지는 중이다.
+      this.#lastAboveAtMs = atMs;
 
       const key: SeriesKey = {
         exchange: target.exchange,
@@ -126,18 +142,25 @@ export class ChannelRuntime {
       }
     }
 
+    // 사건이 새로 시작했으면 발사 권리도 새로 생긴다. 이 초에 쿨다운으로
+    // 아무것도 통과하지 못했더라도 리셋해 둬야, 사건 도중 쿨다운이 풀렸을 때
+    // 그 사건의 첫 알림이 제대로 나간다.
+    if (isNewEvent) {
+      this.#firedThisEvent = false;
+    }
+
     if (best === null || scale === null) {
       return { alert: null, rejectedCooldown, merged: 0 };
     }
 
-    // 같은 사건이 수백 초 동안 임계를 계속 넘는다. 병합 창 안의 후속
-    // 교차는 이미 나간 알림에 흡수한다. 후보를 모으려고 발사를 미루지는
-    // 않는다 — 지연을 줄이려고 aggTrade까지 쓴 물건이라 늦출 수 없다.
-    if (atMs - this.#lastAlertAtMs < FRAME_MERGE_WINDOW_SECONDS * 1000) {
+    // 같은 사건이 수백 초 동안 임계를 계속 넘는다. 사건당 알림은 하나이므로
+    // 이미 나간 알림에 흡수한다. 후보를 모으려고 발사를 미루지는 않는다 —
+    // 지연을 줄이려고 aggTrade까지 쓴 물건이라 늦출 수 없다.
+    if (this.#firedThisEvent) {
       return { alert: null, rejectedCooldown, merged: passed };
     }
 
-    this.#lastAlertAtMs = atMs;
+    this.#firedThisEvent = true;
 
     return {
       alert: {
