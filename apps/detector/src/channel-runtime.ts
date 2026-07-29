@@ -44,11 +44,30 @@ function nextAlertId(): string {
 
 export class ChannelRuntime {
   readonly channel: Channel;
-  readonly #cooldown = new TimeDecayCooldown();
-  #lastAlertAtMs = Number.NEGATIVE_INFINITY;
+  readonly #cooldown: TimeDecayCooldown;
+  #lastAlertAtMs: number;
 
-  constructor(channel: Channel) {
+  constructor(
+    channel: Channel,
+    inherited?: { cooldown: TimeDecayCooldown; lastAlertAtMs: number },
+  ) {
     this.channel = channel;
+    this.#cooldown = inherited?.cooldown ?? new TimeDecayCooldown();
+    this.#lastAlertAtMs = inherited?.lastAlertAtMs ?? Number.NEGATIVE_INFINITY;
+  }
+
+  /**
+   * 설정만 갈아끼운 새 상태를 만든다.
+   *
+   * 쿨다운과 마지막 알림 시각을 넘겨받는 것이 요점이다. 채널 목록을 다시
+   * 읽을 때마다 새로 만들면 그 둘이 초기화되어, 방금 울린 사건이 1분 뒤에
+   * 또 울린다.
+   */
+  withChannel(channel: Channel): ChannelRuntime {
+    return new ChannelRuntime(channel, {
+      cooldown: this.#cooldown,
+      lastAlertAtMs: this.#lastAlertAtMs,
+    });
   }
 
   /**

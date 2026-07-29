@@ -120,8 +120,16 @@ export type Sensitivity = number;
 /** 프레임별 개별 조정. 기본은 비어 있고, 고급 설정에서만 건드린다. */
 export type TimeframeOverrides = Partial<Record<Timeframe, Sensitivity>>;
 
-/** 알림 전달 수단. 채널마다 여러 개를 동시에 켤 수 있다. */
-export type DeliveryMethod = "browser" | "telegram";
+/**
+ * 알림 전달 수단.
+ *
+ * 한때 "telegram"이 있었다. 자리를 비웠을 때를 메우려던 것이었는데,
+ * 앱을 만들기로 하면서(2026-07-29) 그 자리를 앱 푸시가 맡게 되어 지웠다.
+ * 발송기를 만들기 전이라 타입과 컬럼만 걷어내면 됐다.
+ *
+ * 지금은 하나뿐이지만 유니온으로 남겨 둔다. 앱이 나오면 "app"이 붙는다.
+ */
+export type DeliveryMethod = "browser";
 
 /**
  * 채널. 사용자가 만드는 감시 단위다.
@@ -158,41 +166,32 @@ export interface Channel {
 export interface UserSettings {
   userId: string;
   channels: Channel[];
-  /**
-   * 계정 단위 텔레그램 연결.
-   * 채널이 "telegram"을 켰을 때 이 연결로 발송된다. 채널마다 따로 연결하게
-   * 하면 사용자가 봇을 여러 번 연결해야 해서 계정 단위로 둔다.
-   */
-  telegram: TelegramTarget | null;
   /** 알림을 받지 않을 시간대 (KST 기준 "HH:mm"). 미설정이면 24시간 수신. */
   quietHours?: { from: string; to: string };
 }
 
-/** 텔레그램 수신 대상. 토큰은 서버 환경변수에만 두고 여기 담지 않는다. */
-export interface TelegramTarget {
-  chatId: string;
-  /** 사용자가 봇을 실제로 연결했는지 확인된 시각 */
-  verifiedAtMs: number | null;
-}
-
 /**
- * 브라우저 수신 대상.
+ * 브라우저 수신 대상 = 웹 푸시 구독 하나.
  *
- * 지금은 탭이 열려 있는 동안만 동작한다. 페이지가 서버와 연결을 유지하고,
- * 알림이 오면 Notification API로 띄운다. 탭을 닫으면 이 경로는 끊긴다.
- * 탭이 닫혀도 받으려면 Web Push(서비스 워커 + VAPID)가 필요한데
- * 아직 범위 밖이다.
+ * 탭이 열려 있어야만 받던 구조를 버렸다(2026-07-29). 그때는 페이지의
+ * JavaScript가 직접 Notification을 띄웠기 때문에 탭을 닫으면 경로가 끊겼는데,
+ * 트레이더가 하루 종일 이 사이트 탭을 열어둘 거라는 가정이 비현실적이었다.
+ *
+ * 이제 서비스 워커가 받는다. 브라우저만 떠 있으면 탭과 무관하게 도착한다.
+ * (브라우저를 완전히 종료하면 그때는 못 받는다. 그 자리는 앱이 메운다.)
+ *
+ * p256dh와 auth는 페이로드 암호화용 공개 키 재료다(RFC 8291). 비밀이
+ * 아니라 그 브라우저 전용 값이다.
  */
 export interface BrowserTarget {
-  /** 열려 있는 세션 식별자. 연결이 끊기면 무효가 된다. */
-  sessionId: string;
-  connectedAtMs: number;
+  /** 푸시 서비스가 준 고유 주소. 그대로 기본키로 쓴다. */
+  endpoint: string;
+  p256dh: string;
+  auth: string;
 }
 
 /** 발송 시점에 실제로 쓰이는 수신 대상. */
-export type DeliveryTarget =
-  | { method: "browser"; target: BrowserTarget }
-  | { method: "telegram"; target: TelegramTarget };
+export type DeliveryTarget = { method: "browser"; target: BrowserTarget };
 
 // ---------------------------------------------------------------------------
 // 알림 파이프라인

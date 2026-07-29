@@ -49,8 +49,12 @@ const ko = {
     unsupported: "이 브라우저는 알림을 지원하지 않습니다. 크롬이나 엣지를 써주세요.",
     denied:
       "알림이 차단되어 있습니다. 주소창 왼쪽 자물쇠 아이콘에서 이 사이트의 알림을 허용해주세요.",
-    prompt: "알림을 받으려면 브라우저 권한이 필요합니다.",
+    unconfigured: "알림 서버가 아직 준비되지 않았습니다.",
+    loginRequired: "알림을 받으려면 로그인이 필요합니다.",
+    prompt: "알림을 켜면 탭을 닫아도 브라우저가 켜져 있는 동안 알림이 옵니다.",
     enable: "알림 켜기",
+    enabling: "켜는 중...",
+    subscribed: "이 브라우저로 알림을 받고 있습니다.",
   },
 
   list: {
@@ -90,10 +94,8 @@ const ko = {
     searchPlaceholder: "코인 검색 (BTC, ETH, SOL...)",
     noMatches: "검색 결과가 없습니다.",
     deliveryLabel: "알림 방법",
-    browser: "브라우저",
-    browserHint: "탭이 열려 있는 동안 울립니다",
-    telegram: "텔레그램",
-    telegramHint: "자리를 비워도 폰으로 받습니다",
+    browser: "브라우저 알림",
+    browserHint: "탭을 닫아도 브라우저가 켜져 있으면 옵니다",
     loginRequired: "로그인 필요",
     cancel: "취소",
     save: "저장",
@@ -136,7 +138,7 @@ const ko = {
     email: "이메일",
     password: "비밀번호",
     noticeTop:
-      "아직 준비 중입니다. 계정이 생기면 채널이 저장되어 앱에서도 이어서 쓸 수 있고, 텔레그램 알림도 켤 수 있게 됩니다.",
+      "아직 준비 중입니다. 계정이 생기면 채널이 저장되어 어느 기기에서든 이어서 쓸 수 있습니다.",
     noticeBottom:
       "지금은 로그인 없이 그대로 쓰셔도 됩니다. 만든 채널은 이 탭이 열려 있는 동안 유지됩니다.",
     toSignupPrefix: "계정이 없으신가요?",
@@ -217,8 +219,13 @@ const en: Dictionary = {
       "This browser does not support notifications. Try Chrome or Edge.",
     denied:
       "Notifications are blocked. Allow them for this site from the lock icon in the address bar.",
-    prompt: "Browser permission is required to receive alerts.",
+    unconfigured: "The alert server is not ready yet.",
+    loginRequired: "Log in to receive alerts.",
+    prompt:
+      "Turn on alerts and they arrive even with this tab closed, as long as your browser is running.",
     enable: "Enable alerts",
+    enabling: "Enabling...",
+    subscribed: "This browser is receiving alerts.",
   },
 
   list: {
@@ -259,10 +266,8 @@ const en: Dictionary = {
     searchPlaceholder: "Search coins (BTC, ETH, SOL...)",
     noMatches: "No matches.",
     deliveryLabel: "Delivery",
-    browser: "Browser",
-    browserHint: "Fires while this tab is open",
-    telegram: "Telegram",
-    telegramHint: "Reaches your phone when you are away",
+    browser: "Browser notifications",
+    browserHint: "Arrives even with this tab closed, as long as your browser is running",
     loginRequired: "Login required",
     cancel: "Cancel",
     save: "Save",
@@ -305,7 +310,7 @@ const en: Dictionary = {
     email: "Email",
     password: "Password",
     noticeTop:
-      "Not ready yet. Once accounts exist, your channels will be saved so you can continue in the app, and Telegram alerts become available.",
+      "Not ready yet. Once accounts exist, your channels will be saved so you can pick up on any device.",
     noticeBottom:
       "You can keep using it without an account. Channels you create last as long as this tab stays open.",
     toSignupPrefix: "No account yet?",

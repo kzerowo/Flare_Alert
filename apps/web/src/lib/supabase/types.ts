@@ -36,9 +36,33 @@ export type ChannelSymbolRow = {
 
 export type ProfileRow = {
   id: string;
-  telegram_chat_id: string | null;
-  telegram_verified_at: string | null;
   locale: string;
+  created_at: string;
+};
+
+export type PushSubscriptionRow = {
+  endpoint: string;
+  user_id: string;
+  p256dh: string;
+  auth: string;
+  label: string | null;
+  created_at: string;
+  last_success_at: string | null;
+};
+
+export type AlertRow = {
+  id: string;
+  user_id: string;
+  channel_id: string;
+  exchange: string;
+  symbol: string;
+  fired_at: string;
+  price: number;
+  percentile: number;
+  score: number;
+  quote_volume: number;
+  ratio_to_median: number;
+  scale: string;
   created_at: string;
 };
 
@@ -67,6 +91,20 @@ export type Database = {
         Row: ProfileRow;
         Insert: Pick<ProfileRow, "id"> & Partial<ProfileRow>;
         Update: Partial<Omit<ProfileRow, "id">>;
+        Relationships: [];
+      };
+      push_subscriptions: {
+        Row: PushSubscriptionRow;
+        Insert: Omit<PushSubscriptionRow, "created_at" | "last_success_at"> &
+          Partial<Pick<PushSubscriptionRow, "last_success_at">>;
+        Update: Partial<Omit<PushSubscriptionRow, "endpoint">>;
+        Relationships: [];
+      };
+      alerts: {
+        Row: AlertRow;
+        // detector가 service_role로 넣는다. 웹은 읽기만 한다.
+        Insert: Omit<AlertRow, "id" | "created_at"> & { id?: string };
+        Update: never;
         Relationships: [];
       };
     };

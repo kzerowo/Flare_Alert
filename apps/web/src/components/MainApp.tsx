@@ -8,6 +8,12 @@ import { useAuth } from "@/lib/auth";
 import { useChannels } from "@/lib/channel-store";
 import { useT } from "@/lib/i18n";
 import type { Dictionary } from "@/lib/i18n";
+import {
+  readPushState,
+  registerServiceWorker,
+  subscribeToPush,
+} from "@/lib/push";
+import type { PushState } from "@/lib/push";
 import { AuthDialog } from "./AuthDialog";
 import { ChannelCard } from "./ChannelCard";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -20,29 +26,51 @@ type View =
   | { kind: "create" }
   | { kind: "edit"; channel: Channel };
 
-type NotificationState = "unsupported" | "default" | "granted" | "denied";
-
-/** 브라우저 알림 권한 상태. 게스트의 유일한 알림 수단이라 눈에 띄어야 한다. */
-function useNotificationPermission() {
-  const [state, setState] = useState<NotificationState>("default");
+/**
+ * 웹 푸시 구독 상태.
+ *
+ * 예전에는 Notification 권한만 물었고 실제로 띄우는 코드가 없었다. 이제
+ * 서비스 워커에 구독까지 붙여야 detector가 보낸 알림이 도착한다.
+ */
+function usePush(signedIn: boolean) {
+  const [state, setState] = useState<PushState>("default");
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (typeof window === "undefined" || !("Notification" in window)) {
-      setState("unsupported");
-      return;
-    }
-    setState(Notification.permission as NotificationState);
-  }, []);
+    let cancelled = false;
 
-  async function request(): Promise<void> {
-    if (!("Notification" in window)) {
-      return;
+    void (async () => {
+      // 워커를 미리 등록해 둔다. 구독 시점에 등록하면 활성화를 기다리느라
+      // 사용자가 버튼을 누른 뒤 눈에 띄게 멈춘다.
+      await registerServiceWorker();
+      const next = await readPushState();
+      if (!cancelled) {
+        setState(next);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [signedIn]);
+
+  async function enable(): Promise<void> {
+    setBusy(true);
+    try {
+      const result = await subscribeToPush();
+      if (result.ok) {
+        setState("subscribed");
+      } else if (result.reason === "denied") {
+        setState("denied");
+      } else {
+        setState(result.reason === "unsupported" ? "unsupported" : "unconfigured");
+      }
+    } finally {
+      setBusy(false);
     }
-    const result = await Notification.requestPermission();
-    setState(result as NotificationState);
   }
 
-  return { state, request };
+  return { state, busy, enable };
 }
 
 export function MainApp() {
@@ -53,9 +81,9 @@ export function MainApp() {
   const [view, setView] = useState<View>({ kind: "list" });
   const [auth, setAuth] = useState<"login" | "signup" | null>(null);
   const [pendingRemove, setPendingRemove] = useState<Channel | null>(null);
-  const notification = useNotificationPermission();
 
   const signedIn = user !== null;
+  const push = usePush(signedIn);
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -151,8 +179,10 @@ export function MainApp() {
 
             <NotificationNotice
               t={t}
-              state={notification.state}
-              onRequest={notification.request}
+              state={push.state}
+              busy={push.busy}
+              signedIn={signedIn}
+              onEnable={() => void push.enable()}
               hasChannels={channels.length > 0}
             />
 
@@ -258,16 +288,20 @@ export function MainApp() {
 function NotificationNotice({
   t,
   state,
-  onRequest,
+  busy,
+  signedIn,
+  onEnable,
   hasChannels,
 }: {
   t: Dictionary;
-  state: NotificationState;
-  onRequest: () => void;
+  state: PushState;
+  busy: boolean;
+  signedIn: boolean;
+  onEnable: () => void;
   hasChannels: boolean;
 }) {
   // 채널이 없으면 아직 알림을 걱정할 단계가 아니다.
-  if (!hasChannels || state === "granted") {
+  if (!hasChannels || state === "subscribed") {
     return null;
   }
 
@@ -275,6 +309,14 @@ function NotificationNotice({
     return (
       <div className="rounded-lg border border-white/5 bg-card p-4 text-body-sm text-on-surface-variant">
         {t.notification.unsupported}
+      </div>
+    );
+  }
+
+  if (state === "unconfigured") {
+    return (
+      <div className="rounded-lg border border-white/5 bg-card p-4 text-body-sm text-on-surface-variant">
+        {t.notification.unconfigured}
       </div>
     );
   }
@@ -287,6 +329,15 @@ function NotificationNotice({
     );
   }
 
+  // 구독은 사용자에게 매달린다. 게스트에게는 보낼 대상이 없다.
+  if (!signedIn) {
+    return (
+      <div className="rounded-lg border border-white/5 bg-card p-4 text-body-sm text-on-surface-variant">
+        {t.notification.loginRequired}
+      </div>
+    );
+  }
+
   return (
     <div className="flex items-center justify-between gap-4 rounded-lg border border-primary/30 bg-primary/5 p-4">
       <p className="text-body-sm text-on-surface-variant">
@@ -294,10 +345,11 @@ function NotificationNotice({
       </p>
       <button
         type="button"
-        onClick={onRequest}
-        className="label shrink-0 rounded-lg bg-primary-container px-6 py-2 font-bold text-on-primary-container transition-all hover:opacity-90"
+        onClick={onEnable}
+        disabled={busy}
+        className="label shrink-0 rounded-lg bg-primary-container px-6 py-2 font-bold text-on-primary-container transition-all hover:opacity-90 disabled:opacity-50"
       >
-        {t.notification.enable}
+        {busy ? t.notification.enabling : t.notification.enable}
       </button>
     </div>
   );

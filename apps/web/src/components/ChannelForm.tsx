@@ -189,49 +189,20 @@ export function ChannelForm({ initial, signedIn, onSave, onCancel }: Props) {
             {t.form.deliveryLabel}
           </span>
 
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <label className="flex cursor-pointer items-center gap-4 rounded-lg border border-white/10 bg-surface p-4 transition-all hover:border-primary/50">
-              <input
-                type="checkbox"
-                checked={draft.delivery.includes("browser")}
-                onChange={() => toggleDelivery("browser")}
-                className="h-5 w-5 accent-primary-container"
-              />
-              <span className="flex flex-col">
-                <span className="text-body">{t.form.browser}</span>
-                <span className="text-body-sm text-on-surface-variant">
-                  {t.form.browserHint}
-                </span>
+          <label className="flex cursor-pointer items-center gap-4 rounded-lg border border-white/10 bg-surface p-4 transition-all hover:border-primary/50">
+            <input
+              type="checkbox"
+              checked={draft.delivery.includes("browser")}
+              onChange={() => toggleDelivery("browser")}
+              className="h-5 w-5 accent-primary-container"
+            />
+            <span className="flex flex-col">
+              <span className="text-body">{t.form.browser}</span>
+              <span className="text-body-sm text-on-surface-variant">
+                {t.form.browserHint}
               </span>
-            </label>
-
-            <label
-              className={`flex items-center gap-4 rounded-lg border border-white/5 bg-surface p-4 ${
-                signedIn ? "cursor-pointer hover:border-primary/50" : "cursor-not-allowed opacity-40"
-              }`}
-            >
-              <input
-                type="checkbox"
-                disabled={!signedIn}
-                checked={draft.delivery.includes("telegram")}
-                onChange={() => toggleDelivery("telegram")}
-                className="h-5 w-5 accent-primary-container"
-              />
-              <span className="flex flex-col">
-                <span className="flex items-center gap-1">
-                  <span className="text-body">{t.form.telegram}</span>
-                  {signedIn ? null : (
-                    <span className="label rounded bg-white/10 px-1 py-[1px] text-[10px] text-on-surface-variant">
-                      {t.form.loginRequired}
-                    </span>
-                  )}
-                </span>
-                <span className="text-body-sm text-on-surface-variant">
-                  {t.form.telegramHint}
-                </span>
-              </span>
-            </label>
-          </div>
+            </span>
+          </label>
         </section>
 
         {showProblems && problems.length > 0 ? (

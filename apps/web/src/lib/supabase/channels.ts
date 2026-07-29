@@ -37,9 +37,7 @@ function toTimeframes(values: string[]): Timeframe[] {
 }
 
 function toDelivery(values: string[]): DeliveryMethod[] {
-  return values.filter(
-    (v): v is DeliveryMethod => v === "browser" || v === "telegram",
-  );
+  return values.filter((v): v is DeliveryMethod => v === "browser");
 }
 
 function toExchange(value: string): Exchange {

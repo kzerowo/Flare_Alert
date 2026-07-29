@@ -109,8 +109,8 @@ export function ChannelCard({ channel, onEdit, onRemove, onToggle }: Props) {
                   key={method}
                   className="label inline-flex items-center gap-1 rounded border border-primary/20 bg-primary/10 px-2 py-1 text-primary"
                 >
-                  <Icon name={method === "browser" ? "globe" : "send"} size={14} />
-                  {method === "browser" ? t.form.browser : t.form.telegram}
+                  <Icon name="globe" size={14} />
+                  {t.form.browser}
                 </span>
               ))}
             </div>

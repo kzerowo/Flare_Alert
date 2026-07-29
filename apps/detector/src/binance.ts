@@ -188,19 +188,77 @@ export interface AggTradeStreamOptions {
  */
 export class AggTradeStream {
   readonly #options: AggTradeStreamOptions;
+  #symbols: string[];
   #socket: WebSocket | null = null;
   #closed = false;
   #attempt = 0;
+  #requestId = 0;
   #disconnectedAtMs: number | null = null;
   #reconnectTimer: NodeJS.Timeout | null = null;
 
   constructor(options: AggTradeStreamOptions) {
     this.#options = options;
+    this.#symbols = [...options.symbols];
   }
 
   start(): void {
     this.#closed = false;
     this.#connect();
+  }
+
+  get symbols(): readonly string[] {
+    return this.#symbols;
+  }
+
+  /**
+   * 감시 목록을 바꾼다.
+   *
+   * 연결을 다시 맺지 않는다. 사용자가 채널 하나를 추가할 때마다 끊었다
+   * 붙으면 그 순간 모든 종목의 체결이 끊겨 창에 구멍이 난다. 바이낸스가
+   * 지원하는 SUBSCRIBE/UNSUBSCRIBE 메시지로 차이만 보낸다.
+   */
+  setSymbols(next: readonly string[]): void {
+    const wanted = new Set(next.map((symbol) => symbol.toUpperCase()));
+    const current = new Set(this.#symbols);
+
+    const added = [...wanted].filter((symbol) => !current.has(symbol));
+    const removed = [...current].filter((symbol) => !wanted.has(symbol));
+
+    if (added.length === 0 && removed.length === 0) {
+      return;
+    }
+
+    this.#symbols = [...wanted];
+
+    // 연결이 없으면 다음 연결 때 새 목록으로 붙으므로 보낼 것이 없다.
+    const socket = this.#socket;
+    if (socket === null || socket.readyState !== WebSocket.OPEN) {
+      return;
+    }
+
+    if (added.length > 0) {
+      this.#sendCommand(socket, "SUBSCRIBE", added);
+      this.#options.onLog("info", `스트림 추가: ${added.join(", ")}`);
+    }
+    if (removed.length > 0) {
+      this.#sendCommand(socket, "UNSUBSCRIBE", removed);
+      this.#options.onLog("info", `스트림 해제: ${removed.join(", ")}`);
+    }
+  }
+
+  #sendCommand(
+    socket: WebSocket,
+    method: "SUBSCRIBE" | "UNSUBSCRIBE",
+    symbols: readonly string[],
+  ): void {
+    this.#requestId += 1;
+    socket.send(
+      JSON.stringify({
+        method,
+        params: symbols.map((symbol) => `${symbol.toLowerCase()}@aggTrade`),
+        id: this.#requestId,
+      }),
+    );
   }
 
   stop(): void {
@@ -217,7 +275,7 @@ export class AggTradeStream {
     // 설정값은 단일 스트림용 주소(.../ws)로 들어온다. 여러 종목을 한 연결로
     // 받으려면 조합 스트림(/stream?streams=...)으로 바꿔야 한다.
     const base = this.#options.wsUrl.replace(/\/ws\/?$/, "");
-    const streams = this.#options.symbols
+    const streams = this.#symbols
       .map((symbol) => `${symbol.toLowerCase()}@aggTrade`)
       .join("/");
     return `${base}/stream?streams=${streams}`;

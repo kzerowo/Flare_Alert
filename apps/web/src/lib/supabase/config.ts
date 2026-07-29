@@ -20,3 +20,17 @@ export const SUPABASE_ANON_KEY = anonKey ?? "";
 export function isSupabaseConfigured(): boolean {
   return SUPABASE_URL.length > 0 && SUPABASE_ANON_KEY.length > 0;
 }
+
+/**
+ * 웹 푸시 서명 공개 키(VAPID).
+ *
+ * 브라우저가 구독할 때 이 키로 서명을 검증한다. detector가 가진 비밀 키와
+ * 쌍이어야 하고, 어긋나면 구독은 되는데 발송이 전부 거절된다.
+ *
+ * 공개 키라 노출되어도 문제없다. 이 키만으로는 알림을 보낼 수 없다.
+ *
+ * 없으면 null이다. Supabase와 마찬가지로 없는 것이 오류는 아니고,
+ * 그 경우 알림 기능만 꺼진 채로 나머지가 동작한다.
+ */
+export const VAPID_PUBLIC_KEY =
+  process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY?.trim() || null;
