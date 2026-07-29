@@ -47,13 +47,13 @@ export async function generateMetadata(): Promise<Metadata> {
   if (locale === "en") {
     return {
       title: "Flare Alert",
-      description: "Coin liquidity alerts",
+      description: "Crypto liquidity alerts",
     };
   }
 
   return {
     title: "Flare Alert",
-    description: "코인 유동성 알림",
+    description: "크립토 유동성 알림",
   };
 }
 

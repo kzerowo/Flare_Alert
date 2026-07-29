@@ -12,12 +12,13 @@
 @theme {
   /* --- 배경 계층 --- */
   /* 아래로 갈수록 앞으로 나온다. 카드는 surface보다 밝다. */
-  --color-sunken: #0a0f12;
-  --color-surface: #0b0d12;
-  --color-surface-low: #171c20;
-  --color-card: #141821;
-  --color-surface-high: #252b2e;
-  --color-surface-highest: #303539;
+  /* 2026-07-29: 크립토 대시보드 분위기를 위해 전체적으로 더 어둡게 조정. */
+  --color-sunken: #020304;
+  --color-surface: #030405;
+  --color-surface-low: #090b0d;
+  --color-card: #07090d;
+  --color-surface-high: #121517;
+  --color-surface-highest: #1a1d20;
 
   /* --- 강조 --- */
   /*

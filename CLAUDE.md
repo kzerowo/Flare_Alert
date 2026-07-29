@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-_Last updated: 2026-07-29 18:13_
+_Last updated: 2026-07-29 22:56_
 
 ## Project Overview
 
@@ -24,6 +24,7 @@ _Last updated: 2026-07-29 18:13_
 
 **Design tokens** (`apps/web/src/app/globals.css` @theme):
 - **Colors** (Material 3 semantics): 6-layer backgrounds (sunken → surface → surface-low → card → surface-high → surface-highest); primary (#8ed5ff) for text/icons on dark backgrounds; primary-container (#38bdf8) for filled button backgrounds; state colors (danger, warm); outline shades for borders and dividers
+  - **Background layers darkened for crypto-dashboard aesthetic** (2026-07-29 update): all six background colors shifted significantly darker. Sunken now #020304, surface #030405, card #07090d, etc., to evoke a more crypto-trading-platform mood.
   - **Button text on primary-container**: Raised contrast from #004965 (4.6:1) to #002030 (7.8:1) to meet legibility needs for 12px uppercase labels (2026-07-29)
 - **Spacing**: 5 scales (4px, 8px, 16px, 24px, 48px) in multiples of 4; **no named --spacing-* tokens** — conflicts with Tailwind v4's `max-w-*`, `w-*`, `h-*` resolution order. Use numeric scale directly: `xs=1`, `sm=2`, `md=4`, `lg=6`, `xl=12` (Tailwind default units).
 - **Typography**: 7 text styles (display, headline, title, body, body-sm, data, label) with paired line-height and letter-spacing
@@ -52,6 +53,7 @@ Korean and English. `packages/core` is language-neutral — it returns numbers a
 
 - **`apps/web/src/lib/locale.ts`** — `Locale`, `LOCALES`, `LOCALE_COOKIE`, `parseLocale`, `LOCALE_NAME`, `LOCALE_TAG`. **No `"use client"`.** Kept separate from the dictionary because `i18n.tsx` is a client module, and every export of a client module is unusable from a server component. `layout.tsx` reads the cookie on the server and needs `parseLocale` there.
 - **`apps/web/src/lib/i18n.tsx`** — dictionaries + `LocaleProvider` + `useT()`. `ko` is the source of truth; `en` is typed as `typeof ko`, so a phrase added only to Korean fails the build. Values that interpolate are functions, not templates — English pluralizes and Korean does not.
+  - **User-visible text switched from "coin" to "crypto"** (2026-07-29): All references to "코인" (Korean) and "Coin" (English) in UI strings have been changed to "크립토" and "Crypto" respectively. Internal component and variable names like `CoinIcon`, `symbolsLabel` remain unchanged.
 - Components read `const t = useT()` and access fields directly (`t.form.cancel`). No string-key lookup, so typos are compile errors.
 - **Locale lives in a cookie**, not `localStorage`. The server must see it or the first paint renders Korean and then flips. `layout.tsx` and `generateMetadata()` both read it, which makes `/` a dynamic route — fine, the page is fully interactive anyway.
 
@@ -62,7 +64,7 @@ Language-dependent formatting that used to live in core:
 
 ## Directory Structure
 
-## Coin Selection (2026-07-29)
+## Asset Selection (Crypto / 2026-07-29)
 
 `POPULAR_BINANCE_SYMBOLS` in `packages/core/src/channel.ts` lists exactly 13 symbols in descending market-cap order:
 
@@ -88,8 +90,12 @@ BTC, ETH, BNB, XRP, SOL, TRX, DOGE, XLM, ZEC, WBTC, WBETH, LINK, ADA
 │   │       └── index.ts            # CLI entry + report
 │   ├── detector/          # Real-time detection (continuous process)
 │   │   └── src/
-│   │       ├── index.ts            # Service: boot, 1s clock, alert output, /health
-│   │       ├── config.ts           # Env var loading and validation
+│   │       ├── index.ts            # Entry: boot, logger setup, health endpoint, graceful shutdown
+│   │       ├── service.ts          # DetectorService: main loop, channel sync (1m), alert dispatch
+│   │       ├── store.ts            # Runtime channel state: load from Supabase, hot-add new symbols
+│   │       ├── push.ts             # Pusher: Web Push RFC 8291 encryption + dispatch, dead-sub cleanup
+│   │       ├── config.ts           # Env var loading and validation (now with VAPID keys)
+│   │       ├── vapid-keys.ts       # VAPID key loading from env or disk fallback
 │   │       ├── binance.ts          # REST (klines) + WS (aggTrade, auto-reconnect)
 │   │       ├── aggregator.ts       # 1-second buckets → rolling windows
 │   │       ├── detect.ts           # Baseline → score S → percentile → filters
@@ -98,12 +104,14 @@ BTC, ETH, BNB, XRP, SOL, TRX, DOGE, XLM, ZEC, WBTC, WBETH, LINK, ADA
 │   │       ├── verify.ts           # Replay recent days through the live pipeline
 │   │       └── aggregator.test.ts  # 11 tests incl. minute/second equivalence
 │   └── web/               # Dashboard & settings UI
+│       ├── public/
+│       │   ├── sw.js                # Service worker: register, cache, receive push messages
+│       │   └── coins/
+│       │       └── *.svg                      # Coin icons for top 13 Binance symbols (btc, eth, bnb, xrp, sol, trx, doge, xlm, zec, wbtc, wbeth, link, ada)
 │       ├── src/app/
 │       │   ├── layout.tsx          # Reads locale cookie on the server, wraps LocaleProvider
 │       │   └── page.tsx            # AuthProvider > ChannelStoreProvider > MainApp
 │       ├── src/middleware.ts       # Supabase session refresh (only place cookies can be written)
-│       ├── public/coins/
-│       │   └── *.svg                      # Coin icons for top 13 Binance symbols (btc, eth, bnb, xrp, sol, trx, doge, xlm, zec, wbtc, wbeth, link, ada)
 │       ├── src/components/
 │       │   ├── MainApp.tsx                # App root: nav, hero, channel grid, error banner
 │       │   ├── ChannelCard.tsx            # Display channel with edit/delete/toggle actions (now shows single coin in header)
@@ -118,11 +126,12 @@ BTC, ETH, BNB, XRP, SOL, TRX, DOGE, XLM, ZEC, WBTC, WBETH, LINK, ADA
 │           ├── i18n.tsx                   # Dictionaries + LocaleProvider + useT()
 │           ├── auth.tsx                   # AuthProvider over Supabase Auth
 │           ├── channel-store.tsx          # Guest (sessionStorage) / member (Supabase) dual mode
+│           ├── push.ts                    # Web Push subscription: request permission, subscribe, persist
 │           └── supabase/
-│               ├── config.ts              # Env vars; isSupabaseConfigured()
+│               ├── config.ts              # Env vars; isSupabaseConfigured(); VAPID_PUBLIC_KEY
 │               ├── client.ts              # Cached browser client (null when unconfigured)
 │               ├── server.ts              # Server-component client (read-only cookies)
-│               ├── types.ts               # Database types — `type`, not `interface` (see below)
+│               ├── types.ts               # Database types — `type`, not `interface`; PushSubscription row
 │               └── channels.ts            # Channel read/write against Supabase
 ├── packages/
 │   └── core/src/
@@ -145,11 +154,15 @@ BTC, ETH, BNB, XRP, SOL, TRX, DOGE, XLM, ZEC, WBTC, WBETH, LINK, ADA
 
 ## Storage (Supabase, 2026-07-29)
 
-Schema in `supabase/migrations/0001_init.sql`. Three tables, RLS on all of them.
+Schema in `supabase/migrations/0001_init.sql` (base) and `0002_alerts_and_push.sql` (2026-07-29 additions). Five tables total (profiles, channels, channel_symbols, push_subscriptions, alerts); RLS on all of them.
 
 **`channel_symbols` is a separate table, not an array column on `channels`.** The detector's per-second question is "which channels watch BTCUSDT" — a reverse lookup. An array or jsonb column can't be indexed for that, so every tick would scan all channels. The child table carries `(exchange, symbol)` index for exactly this path.
 
 **`sensitivity` stores the percentile, never the slider position.** The slider is a log-axis presentation; storing positions would silently change every user's setting if the axis is ever retuned.
+
+**`push_subscriptions`** (2026-07-29): Stores browser subscription objects from the Web Push API. One row per browser that opted in. Columns: `id`, `user_id`, `endpoint`, `p256dh`, `auth` (both key components base64url-encoded), `created_at`. The detector reads all of these and sends encrypted payloads to each endpoint. Dead subscriptions (HTTP 404/410) are deleted on first failure.
+
+**`alerts`** (2026-07-29): Immutable event log. Columns: `id`, `user_id` (duplicated from the channel for RLS filtering — Realtime subscriptions can only filter by a single table column), `channel_id`, `symbol`, `scale`, `price`, `ratio_to_median`, `quote_volume`, `percentile`, `score`, `fired_at`. One row per alert; never updated. Broadcast on Realtime for the web UI to display history. DB failure does not block push dispatch — alerts are logged best-effort.
 
 **RLS is the only defense.** The web queries Supabase directly from the browser with the anon key — a public value. No API-route layer sits in between because there's nothing for it to protect that RLS doesn't. The detector uses `SUPABASE_SERVICE_ROLE_KEY`, which bypasses RLS; that key must never get a `NEXT_PUBLIC_` prefix.
 
@@ -171,10 +184,10 @@ See `docs/deploy.md` for the Vercel + Supabase setup procedure.
 Binance aggTrade WS → 1-second buckets → Per-frame rolling windows
   → Median/MAD baseline + anomaly score S → Percentile conversion
   → Sensitivity threshold → Filters (min turnover, warmup, cooldown)
-  → Identify scale (largest frame triggering) → Single alert per channel → Telegram dispatch
+  → Identify scale (largest frame triggering) → Single alert per channel → Web Push dispatch
 ```
 
-**The whole pipeline runs end-to-end as of 2026-07-29** — everything except dispatch. `pnpm --filter @flare-alert/detector start` connects to Binance, primes itself from history, and prints alerts to the console.
+**The whole pipeline runs end-to-end as of 2026-07-29** — detector connects to Binance, primes itself from history, reads channels from Supabase, and dispatches to subscribed browsers via Web Push.
 
 | Stage | Where | State |
 |---|---|---|
@@ -184,8 +197,9 @@ Binance aggTrade WS → 1-second buckets → Per-frame rolling windows
 | Percentile conversion | `detect.ts` (via core) | ✅ |
 | Warmup + min-turnover filters | `aggregator.ts`, `detect.ts` | ✅ |
 | Threshold, cooldown, merge, scale | `channel-runtime.ts` | ✅ |
-| Channels loaded from Supabase | — | ❌ synthetic channel per symbol |
-| Telegram / browser dispatch | — | ❌ console only |
+| Channels loaded from Supabase | `store.ts` (reads every 1 min, hot-adds) | ✅ |
+| Web Push dispatch | `push.ts` (RFC 8291 encryption, graceful dead-sub cleanup) | ✅ |
+| Alerts logged to DB | `service.ts` (non-blocking, doesn't halt dispatch) | ✅ |
 
 **Cold start is the hard part, and `backfill.ts` is where it's solved.** A fresh process has no past, but the 1d frame needs 14 completed daily windows for a baseline, and the percentile needs enough samples to even *resolve* the threshold — below ~2,930 samples no observation can reach percentile 99.9659, so the detector would sit silent rather than alert. Startup replays `BACKFILL_DAYS` (20) of 1-minute klines to fill both. Takes ~3s per symbol.
 
@@ -258,11 +272,20 @@ An `Alert` carries `scale` (the longest anomalous timeframe) as a descriptive la
   - "1일봉급" (left side, low sensitivity): large, long-lasting events have strong signals and trip at low thresholds
 - Exports: `sliderToPercentile()`, `percentileToSlider()`, `estimateAlertsPerDay()`, `SLIDER_MIN`, `SLIDER_MAX`
 
-### Delivery
+### Delivery (updated 2026-07-29)
 
-Per channel, any combination of `browser` and `telegram`.
+Per channel, any combination of `browser` and `web-push`.
 
-Browser notifications use the in-page Notification API and only work **while a tab is open** — no service worker, no Web Push. Telegram covers the away-from-desk case. Because a closed tab is normal, `Notifier.send` returns `boolean` rather than throwing: a failed browser delivery is expected, a failed Telegram delivery is a fault.
+**Web Push** (`apps/web/public/sw.js` service worker + `apps/detector/src/push.ts`):
+- Browser notifications work independently of whether a tab is open — service worker receives them even if the site is backgrounded (but not if the browser itself is closed)
+- Payload encrypted using RFC 8291 (ECDH P-256 + HKDF + AES128GCM) via the `web-push` library
+- Subscriptions stored in Supabase `push_subscriptions` table; detector reads and sends to all subscribed endpoints
+- Graceful handling of dead subscriptions: 404/410 HTTP responses trigger automatic deletion from the table
+- TTL set to 10 minutes (600 seconds) — events are time-sensitive and stale notifications are worse than none
+
+**Browser notifications** (legacy, kept for compatibility):
+- In-page Notification API, only works **while a tab is open**
+- No service worker fallback; this path is being phased out in favor of Web Push
 
 ### Score Semantics
 
@@ -449,15 +472,25 @@ A noise-picking algorithm would sit flat near 1.0x at every threshold. It doesn'
 
 1. **Alert quality — ✅ measured** (see above). New `quality.ts` backend supports any horizon and any symbol; currently reporting 1/5/15/60-second lift. Still open: the time-of-day confound, quality confirmation on 2–3 additional symbols, and hit-rate targets (10%+ above-random clicks would justify a product callout).
 2. **`MIN_QUOTE_VOLUME` has no evidential basis** yet dominates small-cap results.
-3. **Detector pipeline** — ✅ runs end-to-end against live Binance (2026-07-29): ingestion, aggregation, scoring, percentile, filters, cooldown/merge, scale, `/health`. Alerts print to console. Still TODO: (a) load real channels from Supabase instead of one synthetic channel per symbol, (b) Telegram + browser dispatch, (c) `TELEGRAM_BOT_TOKEN` was made optional to unblock verification — make it required again once dispatch lands, (d) confirm the alert rate with a multi-day real-time run (see § Verifying the detector).
-4. **Storage** — ✅ schema, auth, and channel persistence done (see § Storage). Still missing: alert-history table (no producer yet), Telegram linking flow, password reset.
+3. **Detector pipeline** — ✅ complete end-to-end (2026-07-29):
+   - ✅ Ingestion, aggregation, scoring, percentile, filters, cooldown/merge, scale
+   - ✅ Load channels from Supabase (every 1 minute, hot-add new symbols)
+   - ✅ Web Push dispatch (RFC 8291, graceful dead-subscription cleanup)
+   - ✅ Alert logging to database (non-blocking, doesn't halt dispatch)
+   - ✅ `/health` endpoint with warmup state + sample counts
+   - Still TODO: confirm the alert rate with a multi-day real-time run; measure actual user retention and engagement (see § Verifying the detector).
+4. **Storage** — ✅ schema, auth, channel persistence, push subscriptions, and alert logging (see § Storage).
+   - ✅ `push_subscriptions` table (created 2026-07-29)
+   - ✅ `alerts` table with Realtime broadcasting (created 2026-07-29)
+   - Still missing: password reset, Telegram linking flow (if we ever go back to dual-mode).
 5. **Web UI — Main page** (merged landing + channel creation):
    - ✅ `MainApp` — guest/member split driven by real auth state
    - ✅ `ChannelCard` — edit/delete/toggle channel actions; displays single coin in header with icon (2026-07-29)
    - ✅ `ChannelForm` — create/edit UI with single-coin radio selection + `SensitivitySlider`; coin picker uses icons (2026-07-29)
    - ✅ `CoinIcon` — renders SVG coin icon if available, falls back to color dot (2026-07-29)
    - ✅ `AuthDialog` — functional email/password against Supabase Auth
-   - ✅ Browser notification permission request (shown when channel list non-empty)
+   - ✅ Web Push subscription (2026-07-29): permission request, subscription creation, persistence to Supabase
+   - ✅ Service worker registration (`public/sw.js`): message handling, Notification display
    - ✅ Korean/English toggle
    - TODO: alert history view; coin list is 13 Binance top symbols (was 32) rather than fetched live
 6. **Deployment** — `vercel.json` is in place; connecting the Vercel project and filling env vars is a manual account step (`docs/deploy.md`). The detector still has no host.

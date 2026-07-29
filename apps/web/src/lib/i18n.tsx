@@ -39,8 +39,8 @@ const ko = {
   },
 
   hero: {
-    title: "코인 유동성 알림",
-    body: "감시할 코인을 채널로 묶고 민감도만 정하면, 종목별 평소 거래량에 맞춰 자동으로 보정됩니다.",
+    title: "크립토 유동성 알림",
+    body: "감시할 크립토를 채널로 묶고 민감도만 정하면, 종목별 평소 거래량에 맞춰 자동으로 보정됩니다.",
     guestBadge: "게스트",
     guestBody: "채널은 이 탭이 열려 있는 동안 유지됩니다.",
   },
@@ -62,7 +62,7 @@ const ko = {
     subtitle: "감시 중인 목록입니다",
     create: "채널 만들기",
     emptyTitle: "아직 채널이 없습니다",
-    emptyBody: "코인 몇 개를 묶어 첫 채널을 만들어보세요.",
+    emptyBody: "크립토 몇 개를 묶어 첫 채널을 만들어보세요.",
     emptyAction: "첫 채널 만들기",
   },
 
@@ -85,13 +85,13 @@ const ko = {
   form: {
     createTitle: "채널 만들기",
     editTitle: "채널 편집",
-    subtitle: "감시할 코인을 묶고 민감도를 정하세요.",
+    subtitle: "감시할 크립토를 묶고 민감도를 정하세요.",
     nameLabel: "채널 이름",
     namePlaceholder: "예: 메이저 단타",
     defaultName: "새 채널",
-    symbolsLabel: "감시 코인",
+    symbolsLabel: "감시 크립토",
     symbolPickHint: "하나만 고를 수 있습니다",
-    searchPlaceholder: "코인 검색 (BTC, ETH, SOL...)",
+    searchPlaceholder: "크립토 검색 (BTC, ETH, SOL...)",
     noMatches: "검색 결과가 없습니다.",
     deliveryLabel: "알림 방법",
     browser: "브라우저 알림",
@@ -104,7 +104,7 @@ const ko = {
   problem: {
     empty_name: "채널 이름을 입력해주세요.",
     name_too_long: (max: number) => `채널 이름은 ${max}자까지입니다.`,
-    no_symbol: "감시할 코인을 골라주세요.",
+    no_symbol: "감시할 크립토를 골라주세요.",
     no_delivery: "알림 받을 방법을 하나 이상 골라주세요.",
   },
 
@@ -208,8 +208,8 @@ const en: Dictionary = {
   },
 
   hero: {
-    title: "Coin liquidity alerts",
-    body: "Group the coins you want to watch into a channel and set one sensitivity. Thresholds calibrate to each coin's own normal volume.",
+    title: "Crypto liquidity alerts",
+    body: "Group the cryptos you want to watch into a channel and set one sensitivity. Thresholds calibrate to each asset's own normal volume.",
     guestBadge: "Guest",
     guestBody: "Channels last as long as this tab stays open.",
   },
@@ -234,7 +234,7 @@ const en: Dictionary = {
     subtitle: "Everything you are watching",
     create: "New channel",
     emptyTitle: "No channels yet",
-    emptyBody: "Group a few coins together to create your first channel.",
+    emptyBody: "Group a few cryptos together to create your first channel.",
     emptyAction: "Create first channel",
   },
 
@@ -257,13 +257,13 @@ const en: Dictionary = {
   form: {
     createTitle: "New channel",
     editTitle: "Edit channel",
-    subtitle: "Pick a coin to watch and set its sensitivity.",
+    subtitle: "Pick a crypto to watch and set its sensitivity.",
     nameLabel: "Channel name",
     namePlaceholder: "e.g. BTC scalping",
     defaultName: "New channel",
-    symbolsLabel: "Coin",
+    symbolsLabel: "Crypto",
     symbolPickHint: "one per channel",
-    searchPlaceholder: "Search coins (BTC, ETH, SOL...)",
+    searchPlaceholder: "Search cryptos (BTC, ETH, SOL...)",
     noMatches: "No matches.",
     deliveryLabel: "Delivery",
     browser: "Browser notifications",
@@ -277,7 +277,7 @@ const en: Dictionary = {
     empty_name: "Please enter a channel name.",
     name_too_long: (max: number) =>
       `Channel names are limited to ${max} characters.`,
-    no_symbol: "Pick a coin to watch.",
+    no_symbol: "Pick a crypto to watch.",
     no_delivery: "Choose at least one delivery method.",
   },
 
