@@ -43,6 +43,8 @@ export interface EmittedAlert {
   percentile: number;
   /** 그 신호를 낸 프레임 */
   frame: Timeframe;
+  /** 그 신호의 창 누적 거래대금. 거래대금 하한을 재는 데 쓴다. */
+  quoteVolume: number;
 }
 
 export interface EngineResult {
@@ -146,6 +148,7 @@ export function evaluate(
     let passedMask = 0;
     let bestPercentile = Number.NEGATIVE_INFINITY;
     let bestFrame = -1;
+    let bestQuoteVolume = 0;
 
     for (let j = i; j < end; j += 1) {
       const frameIndex = stream.frames[j] ?? 0;
@@ -183,6 +186,7 @@ export function evaluate(
       if (percentile > bestPercentile) {
         bestPercentile = percentile;
         bestFrame = frameIndex;
+        bestQuoteVolume = stream.quoteVolumes[j] ?? 0;
       }
     }
 
@@ -213,6 +217,7 @@ export function evaluate(
           second,
           percentile: bestPercentile,
           frame: primary,
+          quoteVolume: bestQuoteVolume,
         });
       }
     }

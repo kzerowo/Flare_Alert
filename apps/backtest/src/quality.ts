@@ -24,7 +24,7 @@ export const HORIZONS = [60, 300, 900, 3600] as const;
 const MAX_HORIZON = Math.max(...HORIZONS);
 
 /** 한 시점 이후의 가격 움직임. 지평별로 하나씩. */
-interface Movement {
+export interface Movement {
   /** 지평 안에서 시작가 대비 가장 멀리 갔던 거리 (부호 없음) */
   maxMove: number[];
   /** 지평 끝 시점의 수익률 (부호 있음) */
@@ -58,7 +58,10 @@ function makeRandom(seed: number): () => number {
  * 뒤다. 알림도 t초의 거래량으로 결정되므로, 여기서부터 앞을 보는 것이
  * 선행 편향 없이 "알림 이후"를 재는 방법이다.
  */
-function measureFrom(prices: Float32Array, t: number): Movement | null {
+export function measureFrom(
+  prices: Float32Array,
+  t: number,
+): Movement | null {
   const base = prices[t];
   if (base === undefined || base <= 0) {
     return null;

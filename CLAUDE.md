@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-_Last updated: 2026-07-29 19:20_
+_Last updated: 2026-07-29 19:27_
 
 ## Project Overview
 
@@ -54,6 +54,7 @@ Korean and English. `packages/core` is language-neutral — it returns numbers a
 - **`apps/web/src/lib/locale.ts`** — `Locale`, `LOCALES`, `LOCALE_COOKIE`, `parseLocale`, `LOCALE_NAME`, `LOCALE_TAG`. **No `"use client"`.** Kept separate from the dictionary because `i18n.tsx` is a client module, and every export of a client module is unusable from a server component. `layout.tsx` reads the cookie on the server and needs `parseLocale` there.
 - **`apps/web/src/lib/i18n.tsx`** — dictionaries + `LocaleProvider` + `useT()`. `ko` is the source of truth; `en` is typed as `typeof ko`, so a phrase added only to Korean fails the build. Values that interpolate are functions, not templates — English pluralizes and Korean does not.
   - **User-visible text switched from "coin" to "crypto"** (2026-07-29): All references to "코인" (Korean) and "Coin" (English) in UI strings have been changed to "크립토" and "Crypto" respectively. Internal component and variable names like `CoinIcon`, `symbolsLabel` remain unchanged.
+  - **Footer disclaimer updated** (2026-07-29): Removed outdated "detection engine not connected" message. Replaced with: "An alert only tells you liquidity gathered. It does not tell you whether the price will rise or fall — trading decisions are your own." This clarifies alert semantics (volume anomaly ≠ direction signal).
 - Components read `const t = useT()` and access fields directly (`t.form.cancel`). No string-key lookup, so typos are compile errors.
 - **Locale lives in a cookie**, not `localStorage`. The server must see it or the first paint renders Korean and then flips. `layout.tsx` and `generateMetadata()` both read it, which makes `/` a dynamic route — fine, the page is fully interactive anyway.
 
@@ -84,9 +85,11 @@ BTC, ETH, BNB, XRP, SOL, TRX, DOGE, XLM, ZEC, WBTC, WBETH, LINK, ADA
 │   │   └── src/
 │   │       ├── data.ts             # Load/concat prepared series
 │   │       ├── replay.ts           # Phase 1: extract threshold crossings
-│   │       ├── crossings.ts        # Crossing stream + disk cache
+│   │       ├── crossings.ts        # Crossing stream + disk cache (now includes quoteVolumes)
 │   │       ├── engine.ts           # Phase 2: sweep settings, single alert per channel
 │   │       ├── event-scale.ts      # Measure scale labels and channel rate curve
+│   │       ├── quality.ts          # Alert quality measurement (lift, hit-rate, direction)
+│   │       ├── turnover.ts         # Quote volume floor measurement (2026-07-29)
 │   │       └── index.ts            # CLI entry + report
 │   ├── detector/          # Real-time detection (continuous process)
 │   │   └── src/
@@ -467,6 +470,31 @@ Not yet covered: dispatch (unimplemented), frame merging (lives in backtest), an
 
 **Typecheck does not catch server/client boundary violations.** Calling a `"use client"` export from a server component compiles fine and fails at request time with a 500. After touching `layout.tsx` or anything it imports, actually load the page (`curl -s -o /dev/null -w "%{http_code}" http://localhost:3000`).
 
+## Quote Volume Floor & Turnover Measurement (2026-07-29)
+
+`MIN_QUOTE_VOLUME` (50,000 USDT in Binance constants) silently dominates small-cap behavior — without evidence. A signal that works perfectly on BTC/ETH may vanish on ANKR/ONE. The extraction now emits all alerts regardless of volume (extraction constant `EXTRACT_MIN_QUOTE_VOLUME = 0`), and a new `turnover.ts` module measures signal lift across logarithmic quote-volume buckets:
+
+**Buckets**: 0–1K, 1K–5K, 5K–20K, 20K–50K, 50K–200K, 200K–1M, 1M–5M, 5M+.
+
+For each bucket, `measureTurnover()` computes:
+- Alert count
+- Median price movement post-alert (1-minute horizon)
+- Baseline price movement at random times (same symbol, same date)
+- Lift ratio (alert movement ÷ random movement; null if baseline is 0)
+
+**Workflow**:
+1. `extractCrossings()` with `minQuoteVolume: 0` produces a full crossing stream (no filtering).
+2. `CrossingStream` now includes a `quoteVolumes: Float32Array` parallel to percentiles, saved in the binary cache.
+3. `EmittedAlert` includes `quoteVolume` for each threshold crossing.
+4. CLI function `turnoverFloor()` measures and prints lift by bucket for all symbols, helping identify where the signal genuinely degrades.
+
+**Implementation notes**:
+- `buildBaseline()` (reused from quality.ts) caches random movement stats per symbol to avoid redundant computation.
+- Bucket labels are formatted human-readable (e.g., "50K~200K") via `bucketLabel()`.
+- A second pass aggregates totals across all symbols to spot system-wide patterns.
+
+This is a **measurement tool**, not a filter. The actual `MIN_QUOTE_VOLUME` default remains 50K for now, applied during channel evaluation.
+
 ## Alert Quality (measured 2026-07-29)
 
 The first evidence that alerts mean anything. Everything before this only counted *how often* alerts fire.
@@ -508,7 +536,7 @@ A noise-picking algorithm would sit flat near 1.0x at every threshold. It doesn'
 ## Known Gaps & Next Steps
 
 1. **Alert quality — ✅ measured** (see above). New `quality.ts` backend supports any horizon and any symbol; currently reporting 1/5/15/60-second lift. Still open: the time-of-day confound, quality confirmation on 2–3 additional symbols, and hit-rate targets (10%+ above-random clicks would justify a product callout).
-2. **`MIN_QUOTE_VOLUME` has no evidential basis** yet dominates small-cap results.
+2. **`MIN_QUOTE_VOLUME` measurement** — ✅ infrastructure added (2026-07-29). New `turnover.ts` module measures alert lift in logarithmic quote-volume buckets (0–1K, 1K–5K, …, 5M+). Extraction no longer filters by this constant (set to 0 in `EXTRACT_MIN_QUOTE_VOLUME`), so the measurement can examine all volume tiers. Still to run: full backtest to determine optimal floor across all symbols.
 3. **Detector pipeline** — ✅ complete end-to-end (2026-07-29):
    - ✅ Ingestion, aggregation, scoring, percentile, filters, cooldown/merge, scale
    - ✅ Load channels from Supabase (every 1 minute, hot-add new symbols)

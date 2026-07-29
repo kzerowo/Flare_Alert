@@ -203,7 +203,7 @@ const ko = {
   },
 
   footer: {
-    note: "감지 엔진은 아직 연결되지 않았습니다. 지금은 채널을 만들고 설정을 확인하는 것까지 됩니다.",
+    note: "알림은 유동성이 몰렸다는 사실만 알려줍니다. 가격이 오를지 내릴지는 알려주지 않으며, 투자 판단은 본인 몫입니다.",
   },
 
   /** 슬라이더 눈금과 카드에 쓰는 봉 이름. */
@@ -413,7 +413,7 @@ const en: Dictionary = {
   },
 
   footer: {
-    note: "The detection engine is not connected yet. For now you can create channels and review their settings.",
+    note: "An alert only tells you liquidity gathered. It does not tell you whether the price will rise or fall — trading decisions are your own.",
   },
 
   frame: {

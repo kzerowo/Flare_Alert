@@ -23,11 +23,21 @@ import { evaluate } from "./engine.js";
 import { measureChannelCurve, measureScaleMarkers } from "./event-scale.js";
 import { loadManifest, loadPrices, loadSymbol, symbolsIn } from "./data.js";
 import { HORIZONS, buildBaseline, measureQuality } from "./quality.js";
+import { measureTurnover } from "./turnover.js";
 import type { Baseline } from "./quality.js";
 import { extractCrossings } from "./replay.js";
 
 /** 스윕에서 쓸 가장 낮은 민감도. 교차 스트림은 이 아래를 담지 않는다. */
 const MIN_PERCENTILE = 89;
+
+/**
+ * 추출 단계에서는 거래대금으로 거르지 않는다.
+ *
+ * MIN_QUOTE_VOLUME은 근거 없이 정해진 값이라 되물을 수 있어야 한다.
+ * 여기서 걸러 버리면 그 아래가 어땠는지 영영 볼 수 없다. 전부 담아 두고
+ * 필요한 곳에서 훑는다.
+ */
+const EXTRACT_MIN_QUOTE_VOLUME = 0;
 
 // 99 위쪽을 같이 본다. 초 단위 평가에서는 상위 1%도 하루 5천 번 넘게
 // 발생하므로, 실제로 쓸 만한 구간이 99~100 사이에 몰려 있을 수 있다.
@@ -64,7 +74,7 @@ async function getStream(
   const series = await loadSymbol(dataDir, symbol, manifest);
   const result = extractCrossings(series, {
     minPercentile: MIN_PERCENTILE,
-    minQuoteVolume: MIN_QUOTE_VOLUME.binance,
+    minQuoteVolume: EXTRACT_MIN_QUOTE_VOLUME,
     warmupDays: WARMUP_DAYS,
   });
 
@@ -383,6 +393,82 @@ async function alertQuality(
   }
 }
 
+/**
+ * 거래대금 하한을 잰다.
+ *
+ * MIN_QUOTE_VOLUME은 근거 없이 정해진 값이면서 소형주의 동작을 혼자
+ * 결정한다. 구간별로 신호가 살아 있는지 보고 경계를 정한다.
+ */
+async function turnoverFloor(
+  dataDir: string,
+  streams: readonly CrossingStream[],
+  manifest: Awaited<ReturnType<typeof loadManifest>>,
+): Promise<void> {
+  console.log("");
+  console.log("═".repeat(76));
+  console.log("거래대금 하한 · 구간별 알림 품질 (1분 지평)");
+  console.log("");
+  console.log(
+    `현재 값 ${MIN_QUOTE_VOLUME.binance.toLocaleString()} USDT는 근거 없이 정해진 값이다.`,
+  );
+  console.log("배수가 1.0 근처인 구간은 알림에 정보가 없다는 뜻이다.");
+
+  // 구간별 합계. 종목을 가로질러 모은다.
+  const totals = new Map<string, { alerts: number; lift: number; n: number }>();
+
+  for (const stream of streams) {
+    const prices = await loadPrices(dataDir, stream.symbol, manifest);
+    const built = buildBaseline(prices, WARMUP_DAYS * 86_400, 20_000, 20260729);
+
+    const report = measureTurnover(stream, prices, built.baseline, {
+      sensitivity: SENSITIVITY_DEFAULT,
+      mergeWindowSeconds: FRAME_MERGE_WINDOW_SECONDS,
+      cooldownScale: 3,
+      tightening: TIGHTENING,
+    });
+
+    console.log("");
+    console.log(
+      `── ${stream.symbol} (알림 ${report.totalAlerts.toLocaleString()}건)`,
+    );
+    console.log(
+      `   ${pad("거래대금", 14)}${padStart("알림", 8)}${padStart("배수", 10)}`,
+    );
+
+    for (const bucket of report.buckets) {
+      if (bucket.alerts === 0) {
+        continue;
+      }
+      const lift = bucket.lift === null ? "—" : `${bucket.lift.toFixed(2)}x`;
+      console.log(
+        `   ${pad(bucket.label, 14)}${padStart(bucket.alerts.toLocaleString(), 8)}${padStart(lift, 10)}`,
+      );
+
+      const entry = totals.get(bucket.label) ?? { alerts: 0, lift: 0, n: 0 };
+      entry.alerts += bucket.alerts;
+      if (bucket.lift !== null) {
+        entry.lift += bucket.lift;
+        entry.n += 1;
+      }
+      totals.set(bucket.label, entry);
+    }
+  }
+
+  console.log("");
+  console.log("─".repeat(76));
+  console.log("전 종목 합계");
+  console.log(
+    `   ${pad("거래대금", 14)}${padStart("알림", 8)}${padStart("평균 배수", 12)}`,
+  );
+
+  for (const [label, entry] of totals) {
+    const average = entry.n > 0 ? `${(entry.lift / entry.n).toFixed(2)}x` : "—";
+    console.log(
+      `   ${pad(label, 14)}${padStart(entry.alerts.toLocaleString(), 8)}${padStart(average, 12)}`,
+    );
+  }
+}
+
 async function main(): Promise<void> {
   const here = path.dirname(fileURLToPath(import.meta.url));
   const dataDir = path.resolve(here, "../../../data/prepared");
@@ -392,8 +478,7 @@ async function main(): Promise<void> {
   const symbols = symbolsIn(manifest);
 
   console.log(
-    `1단계 · 교차 추출 (백분위 ${MIN_PERCENTILE} 이상, ` +
-      `거래대금 하한 ${MIN_QUOTE_VOLUME.binance.toLocaleString()} USDT)`,
+    `1단계 · 교차 추출 (백분위 ${MIN_PERCENTILE} 이상, 거래대금 하한 없음)`,
   );
 
   const streams: CrossingStream[] = [];
@@ -406,6 +491,7 @@ async function main(): Promise<void> {
 
 
   await alertQuality(dataDir, streams, manifest);
+  await turnoverFloor(dataDir, streams, manifest);
 }
 
 main().catch((error: unknown) => {

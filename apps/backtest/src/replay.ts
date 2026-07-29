@@ -20,7 +20,12 @@ import type { SymbolSeries } from "./data.js";
 export interface ExtractOptions {
   /** 이 백분위 미만은 버린다. 어떤 파라미터로도 알림이 될 수 없는 구간. */
   minPercentile: number;
-  /** 절대 거래대금 하한. 창 누적 거래대금이 이 값 미만이면 버린다. */
+  /**
+   * 절대 거래대금 하한. 창 누적 거래대금이 이 값 미만이면 버린다.
+   *
+   * 0으로 두면 거르지 않는다. 하한 자체를 재려면 걸러진 것까지 남아 있어야
+   * 하므로, 그 측정을 할 때는 0으로 뽑고 뒤 단계에서 훑는다.
+   */
   minQuoteVolume: number;
   /** 분포를 쌓기만 하고 교차를 기록하지 않는 초기 기간(일). */
   warmupDays: number;
@@ -233,13 +238,13 @@ export function extractCrossings(
         continue;
       }
 
-      // 거래대금 하한은 파라미터 스윕 대상이 아니므로 여기서 바로 거른다.
       if (quoteVolume < options.minQuoteVolume) {
         stats.rejectedTurnover += 1;
         continue;
       }
 
-      collector.push(t, frame.index, percentile);
+      // 거래대금을 같이 담는다. 하한을 뒤 단계에서 훑을 수 있어야 한다.
+      collector.push(t, frame.index, percentile, quoteVolume);
     }
   }
 
