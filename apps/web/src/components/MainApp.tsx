@@ -14,6 +14,8 @@ import {
   subscribeToPush,
 } from "@/lib/push";
 import type { PushState } from "@/lib/push";
+import { useAlerts } from "@/lib/alerts";
+import { AlertHistory } from "./AlertHistory";
 import { AuthDialog } from "./AuthDialog";
 import { ChannelCard } from "./ChannelCard";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -25,6 +27,8 @@ type View =
   | { kind: "list" }
   | { kind: "create" }
   | { kind: "edit"; channel: Channel };
+
+type Tab = { kind: "channels" } | { kind: "alerts"; channelId?: string };
 
 /**
  * 웹 푸시 구독 상태.
@@ -84,6 +88,18 @@ export function MainApp() {
 
   const signedIn = user !== null;
   const push = usePush(signedIn);
+  const { unseen, markSeen } = useAlerts();
+  // 알림 탭은 채널 하나로 좁혀 볼 수 있다. 채널 카드에서 들어온 경우다.
+  const [tab, setTab] = useState<Tab>({ kind: "channels" });
+
+  // 좁혀 보는 중이면 그 채널 이름. 지워진 채널을 가리키고 있으면 null이라
+  // 자연히 전체 목록처럼 보인다.
+  const filteredChannelId = tab.kind === "alerts" ? tab.channelId : undefined;
+  const filteredChannelName =
+    filteredChannelId === undefined
+      ? null
+      : (channels.find((channel) => channel.id === filteredChannelId)?.name ??
+        null);
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -186,27 +202,56 @@ export function MainApp() {
               hasChannels={channels.length > 0}
             />
 
-            <div className="flex items-end justify-between border-b border-white/5 pb-4">
-              <div>
-                <h2 className="text-headline">
-                  {t.list.heading(channels.length)}
-                </h2>
-                <p className="mt-1 text-body-sm text-on-surface-variant">
-                  {t.list.subtitle}
+            <div className="flex items-end justify-between gap-4 border-b border-white/5 pb-4">
+              <div className="min-w-0">
+                <div className="flex items-center gap-1" role="tablist">
+                  <TabButton
+                    active={tab.kind === "channels"}
+                    onClick={() => setTab({ kind: "channels" })}
+                    label={t.list.tab}
+                  />
+                  <TabButton
+                    active={tab.kind === "alerts"}
+                    onClick={() => {
+                      setTab({ kind: "alerts" });
+                      markSeen();
+                    }}
+                    label={t.alerts.tab}
+                    badge={unseen}
+                  />
+                </div>
+                <p className="mt-2 truncate text-body-sm text-on-surface-variant">
+                  {tab.kind === "channels"
+                    ? t.list.subtitle
+                    : filteredChannelName === null
+                      ? t.alerts.subtitle
+                      : t.alerts.forChannel(filteredChannelName)}
                 </p>
               </div>
 
-              <button
-                type="button"
-                onClick={() => setView({ kind: "create" })}
-                className="flex shrink-0 items-center gap-1 rounded-lg bg-primary-container px-6 py-4 font-bold text-on-primary-container transition-all hover:brightness-110"
-              >
-                <Icon name="plus" size={18} />
-                {t.list.create}
-              </button>
+              {tab.kind === "channels" ? (
+                <button
+                  type="button"
+                  onClick={() => setView({ kind: "create" })}
+                  className="flex shrink-0 items-center gap-1 rounded-lg bg-primary-container px-6 py-4 font-bold text-on-primary-container transition-all hover:brightness-110"
+                >
+                  <Icon name="plus" size={18} />
+                  {t.list.create}
+                </button>
+              ) : filteredChannelName === null ? null : (
+                <button
+                  type="button"
+                  onClick={() => setTab({ kind: "alerts" })}
+                  className="label shrink-0 rounded-lg border border-white/10 px-4 py-2 text-on-surface-variant transition-colors hover:text-primary"
+                >
+                  {t.alerts.backToAll}
+                </button>
+              )}
             </div>
 
-            {!loaded ? null : channels.length === 0 ? (
+            {tab.kind === "alerts" ? (
+              <AlertHistory signedIn={signedIn} channelId={tab.channelId} />
+            ) : !loaded ? null : channels.length === 0 ? (
               <div className="card mx-auto flex max-w-md flex-col items-center rounded-xl border-dashed p-12 text-center">
                 <span className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-surface-high text-primary">
                   <Icon name="chart" size={32} />
@@ -231,6 +276,10 @@ export function MainApp() {
                     channel={channel}
                     onEdit={() => setView({ kind: "edit", channel })}
                     onRemove={() => setPendingRemove(channel)}
+                    onHistory={() => {
+                      setTab({ kind: "alerts", channelId: channel.id });
+                      markSeen();
+                    }}
                     onToggle={() =>
                       update({ ...channel, enabled: !channel.enabled })
                     }
@@ -282,6 +331,40 @@ export function MainApp() {
         />
       )}
     </div>
+  );
+}
+
+/** 채널/알림 기록 전환. 안 읽은 알림이 있으면 개수를 붙인다. */
+function TabButton({
+  active,
+  onClick,
+  label,
+  badge,
+}: {
+  active: boolean;
+  onClick: () => void;
+  label: string;
+  badge?: number;
+}) {
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={active}
+      onClick={onClick}
+      className={`flex items-center gap-2 rounded-lg px-4 py-2 text-title transition-colors ${
+        active
+          ? "bg-white/5 text-on-surface"
+          : "text-on-surface-variant hover:text-on-surface"
+      }`}
+    >
+      {label}
+      {badge !== undefined && badge > 0 ? (
+        <span className="label rounded-full bg-primary-container px-2 py-[2px] font-mono text-on-primary-container">
+          {badge > 99 ? "99+" : badge}
+        </span>
+      ) : null}
+    </button>
   );
 }
 

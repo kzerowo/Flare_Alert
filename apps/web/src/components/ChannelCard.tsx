@@ -29,9 +29,16 @@ interface Props {
   onEdit: () => void;
   onRemove: () => void;
   onToggle: () => void;
+  onHistory: () => void;
 }
 
-export function ChannelCard({ channel, onEdit, onRemove, onToggle }: Props) {
+export function ChannelCard({
+  channel,
+  onEdit,
+  onRemove,
+  onToggle,
+  onHistory,
+}: Props) {
   const t = useT();
   const position = percentileToSlider(channel.sensitivity);
   // 채널당 종목이 하나라 곱할 것이 없다.
@@ -121,6 +128,14 @@ export function ChannelCard({ channel, onEdit, onRemove, onToggle }: Props) {
       {/* 발 */}
       <div className="flex items-center justify-between border-t border-white/5 bg-white/[0.02] p-4">
         <div className="flex gap-4">
+          <button
+            type="button"
+            onClick={onHistory}
+            className="flex items-center gap-1 text-body-sm text-on-surface-variant transition-colors hover:text-primary"
+          >
+            <Icon name="bell" size={16} />
+            {t.card.history}
+          </button>
           <button
             type="button"
             onClick={onEdit}
