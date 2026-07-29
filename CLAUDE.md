@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-_Last updated: 2026-07-29 13:49_
+_Last updated: 2026-07-29 17:59_
 
 ## Project Overview
 
@@ -88,8 +88,15 @@ BTC, ETH, BNB, XRP, SOL, TRX, DOGE, XLM, ZEC, WBTC, WBETH, LINK, ADA
 │   │       └── index.ts            # CLI entry + report
 │   ├── detector/          # Real-time detection (continuous process)
 │   │   └── src/
-│   │       ├── index.ts   # Entry point — pipeline is still TODO
-│   │       └── config.ts  # Env var loading and validation
+│   │       ├── index.ts            # Service: boot, 1s clock, alert output, /health
+│   │       ├── config.ts           # Env var loading and validation
+│   │       ├── binance.ts          # REST (klines) + WS (aggTrade, auto-reconnect)
+│   │       ├── aggregator.ts       # 1-second buckets → rolling windows
+│   │       ├── detect.ts           # Baseline → score S → percentile → filters
+│   │       ├── channel-runtime.ts  # Per-channel threshold, cooldown, merge, scale
+│   │       ├── backfill.ts         # Cold-start priming from historical klines
+│   │       ├── verify.ts           # Replay recent days through the live pipeline
+│   │       └── aggregator.test.ts  # 11 tests incl. minute/second equivalence
 │   └── web/               # Dashboard & settings UI
 │       ├── src/app/
 │       │   ├── layout.tsx          # Reads locale cookie on the server, wraps LocaleProvider
@@ -167,7 +174,37 @@ Binance aggTrade WS → 1-second buckets → Per-frame rolling windows
   → Identify scale (largest frame triggering) → Single alert per channel → Telegram dispatch
 ```
 
-The statistical middle (score, percentile, cooldown) is **implemented and tested** in `packages/core`. Ingestion (WebSocket, 1-second buckets), the turnover/warmup filters, scale detection, and dispatch are **not implemented** — `apps/detector/src/index.ts` is still a skeleton.
+**The whole pipeline runs end-to-end as of 2026-07-29** — everything except dispatch. `pnpm --filter @flare-alert/detector start` connects to Binance, primes itself from history, and prints alerts to the console.
+
+| Stage | Where | State |
+|---|---|---|
+| aggTrade ingestion, reconnect, gap repair | `binance.ts`, `backfill.ts` | ✅ |
+| 1s buckets → per-frame rolling windows | `aggregator.ts` | ✅ tested |
+| Median/MAD baseline → score S | `detect.ts` (via core) | ✅ |
+| Percentile conversion | `detect.ts` (via core) | ✅ |
+| Warmup + min-turnover filters | `aggregator.ts`, `detect.ts` | ✅ |
+| Threshold, cooldown, merge, scale | `channel-runtime.ts` | ✅ |
+| Channels loaded from Supabase | — | ❌ synthetic channel per symbol |
+| Telegram / browser dispatch | — | ❌ console only |
+
+**Cold start is the hard part, and `backfill.ts` is where it's solved.** A fresh process has no past, but the 1d frame needs 14 completed daily windows for a baseline, and the percentile needs enough samples to even *resolve* the threshold — below ~2,930 samples no observation can reach percentile 99.9659, so the detector would sit silent rather than alert. Startup replays `BACKFILL_DAYS` (20) of 1-minute klines to fill both. Takes ~3s per symbol.
+
+**The 1m frame is deliberately excluded from backfill priming.** Replaying at 1-minute granularity only ever evaluates the 1m window at elapsed=60s (complete windows). Live, that frame is judged at elapsed 10–60s, and partial windows have far more velocity variance. Priming from complete windows alone yields a distribution that is too narrow, which inflates live percentiles and over-alerts. Longer frames don't have this problem — for the 1h frame, minute-granularity sampling is a uniform 1-in-60 subsample of the same elapsed range, so the shape is preserved. The 1m frame instead warms up live (~1 hour).
+
+### Verifying the detector against the backtest
+
+`pnpm --filter @flare-alert/detector verify` replays recent days through the *live* pipeline classes (not the backtest's own code) and prints every alert. Env: `VERIFY_DAYS`, `VERIFY_SENSITIVITY`, `DETECTOR_SYMBOLS`.
+
+First run, 2026-07-29, BTC/ETH/SOL over 5 days:
+
+| Slider | Backtest (1s replay) | Detector (1m replay) | Ratio |
+|---|---|---|---|
+| 26 (default) | 2.2 /day/coin | 0.67 /day/coin | 0.30 |
+| 72 | 24.4 /day/coin | 7.80 /day/coin | 0.32 |
+
+**The constant ratio is the result that matters.** Alert rate changed 30× between the two rows while the ratio held at ~0.31. A miscalibrated threshold would drift with sensitivity; a flat offset means the detector applies the same threshold the backtest measured, and the shortfall is the replay's sampling — 1/60 as many evaluation points, plus the 1m frame excluded (visible as an empty 1m bucket in the scale distribution). **Treat verify counts as a floor, not a prediction.** Confirming the absolute rate needs a real-time run over days.
+
+Qualitatively the alerts look right: S values of 30–160, volume 8–64× the median, and the 2026-07-26 22:00–22:02 cluster fired on BTC, ETH, and SOL within two minutes of each other — a market-wide event, correctly caught on three independently-calibrated symbols.
 
 **Alert model** (2026-07-27, clarified 2026-07-29): Alerts are **per channel**, not per frame. All six frames feed into a single percentile decision (maximum across frames). If it clears the threshold, one alert fires per channel. The scale (largest frame to trigger) is attached to the alert as metadata for labeling ("1-hour-class spike"), not as a dispatch mechanism. **Since each channel watches exactly one coin (2026-07-29), every alert unambiguously names its trigger coin.**
 
@@ -289,13 +326,25 @@ pnpm install
 cp .env.example .env        # then fill TELEGRAM_BOT_TOKEN
 
 pnpm dev:web                # builds core, then next dev on :3000
-pnpm dev:detector           # builds core, then runs detector
+pnpm dev:detector           # builds core, then runs detector (live Binance)
 
-pnpm test                   # 53 tests in packages/core
+pnpm test                   # 83 tests (72 core + 11 detector)
 pnpm typecheck              # all 4 workspaces
 pnpm build                  # topological build
 pnpm clean
 ```
+
+### Running the detector
+
+```bash
+pnpm --filter @flare-alert/detector build
+pnpm --filter @flare-alert/detector start    # live; ~9s boot, then prints alerts
+pnpm --filter @flare-alert/detector verify   # replay recent days, print every alert
+
+curl localhost:8080/health   # warmup state + percentile sample counts per frame
+```
+
+`/health` returns 503 until backfill finishes, then 200 with per-symbol warmup and sample counts — use it to tell "quiet market" apart from "frame not awake yet". Neither command needs an API key or a `.env`; Binance's public endpoints need no auth.
 
 ### Backtesting
 
@@ -335,7 +384,8 @@ See `docs/decisions.md` (Korean) for full rationale. Twelve decisions recorded, 
 
 From `.env.example`:
 
-- `TELEGRAM_BOT_TOKEN` — required; detector refuses to boot without it
+- `TELEGRAM_BOT_TOKEN` — **temporarily optional** (2026-07-29). It was required, but dispatch isn't built yet and requiring it blocked verification runs. The detector warns and prints alerts to the console instead. Restore the hard requirement when the Telegram notifier lands.
+- `DETECTOR_SYMBOLS` — detector only; comma-separated (`BTCUSDT,ETHUSDT`). Defaults to BTC/ETH/SOL. Stands in until channels are read from Supabase; each symbol costs ~29 REST requests and ~3s at boot.
 - `BINANCE_WS_URL` — defaults to `wss://stream.binance.com:9443/ws`
 - `PORT` — health-check HTTP port (default 8080)
 - `LOG_LEVEL` — `debug` | `info` | `warn` | `error`
@@ -351,7 +401,9 @@ There is no Binance API key (public dumps and public WS need none).
 
 `packages/core` has 72 tests (`node:test`, no framework dependency) covering math primitives, baseline/score edge cases, percentile accuracy against exact sorted ranks, day-based sample eviction, cooldown behavior, slider↔percentile round-trips, scale markers, and alert-rate description thresholds.
 
-Not yet covered: the detector pipeline (unimplemented), frame merging (lives in backtest), and the web app.
+`apps/detector` has 11 tests covering window alignment to absolute epoch boundaries, elapsed-time gating, velocity computation, the late/early trade buffer, and — most importantly — that minute-granularity backfill and second-granularity live stepping produce identical windows. That last one is what lets cold-start priming share the live code path.
+
+Not yet covered: dispatch (unimplemented), frame merging (lives in backtest), and the web app.
 
 **Typecheck does not catch server/client boundary violations.** Calling a `"use client"` export from a server component compiles fine and fails at request time with a 500. After touching `layout.tsx` or anything it imports, actually load the page (`curl -s -o /dev/null -w "%{http_code}" http://localhost:3000`).
 
@@ -397,7 +449,7 @@ A noise-picking algorithm would sit flat near 1.0x at every threshold. It doesn'
 
 1. **Alert quality — ✅ measured** (see above). New `quality.ts` backend supports any horizon and any symbol; currently reporting 1/5/15/60-second lift. Still open: the time-of-day confound, quality confirmation on 2–3 additional symbols, and hit-rate targets (10%+ above-random clicks would justify a product callout).
 2. **`MIN_QUOTE_VOLUME` has no evidential basis** yet dominates small-cap results.
-3. **Detector pipeline** — WebSocket, 1s aggregation, filter chain, Telegram dispatch. Nothing produces alerts yet, so browser notifications never actually fire.
+3. **Detector pipeline** — ✅ runs end-to-end against live Binance (2026-07-29): ingestion, aggregation, scoring, percentile, filters, cooldown/merge, scale, `/health`. Alerts print to console. Still TODO: (a) load real channels from Supabase instead of one synthetic channel per symbol, (b) Telegram + browser dispatch, (c) `TELEGRAM_BOT_TOKEN` was made optional to unblock verification — make it required again once dispatch lands, (d) confirm the alert rate with a multi-day real-time run (see § Verifying the detector).
 4. **Storage** — ✅ schema, auth, and channel persistence done (see § Storage). Still missing: alert-history table (no producer yet), Telegram linking flow, password reset.
 5. **Web UI — Main page** (merged landing + channel creation):
    - ✅ `MainApp` — guest/member split driven by real auth state
