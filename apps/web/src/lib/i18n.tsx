@@ -39,7 +39,7 @@ const ko = {
   },
 
   hero: {
-    title: "코인마다 임계치를 맞출 필요 없는 급등 알림",
+    title: "코인 유동성 알림",
     body: "감시할 코인을 채널로 묶고 민감도만 정하면, 종목별 평소 거래량에 맞춰 자동으로 보정됩니다.",
     guestBadge: "게스트",
     guestBody: "채널은 이 탭이 열려 있는 동안 유지됩니다.",
@@ -66,7 +66,7 @@ const ko = {
     symbols: "감시 코인",
     noSymbols: "없음",
     sensitivity: "민감도",
-    perDay: "하루 알림",
+    perDay: "예상 알림/하루",
     catches: "잡는 규모",
     catchesLargest: "가장 큰 급등만",
     catchesFrom: (frame: string) => `${frame} 이상`,
@@ -209,7 +209,7 @@ const en: Dictionary = {
   },
 
   hero: {
-    title: "Volume spike alerts without per-coin tuning",
+    title: "Coin liquidity alerts",
     body: "Group the coins you want to watch into a channel and set one sensitivity. Thresholds calibrate to each coin's own normal volume.",
     guestBadge: "Guest",
     guestBody: "Channels last as long as this tab stays open.",
@@ -238,7 +238,7 @@ const en: Dictionary = {
     symbols: "Watching",
     noSymbols: "None",
     sensitivity: "Sensitivity",
-    perDay: "Alerts / day",
+    perDay: "Est. alerts/day",
     catches: "Catches",
     catchesLargest: "Largest spikes only",
     catchesFrom: (frame: string) => `${frame} and larger`,

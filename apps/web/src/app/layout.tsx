@@ -47,13 +47,13 @@ export async function generateMetadata(): Promise<Metadata> {
   if (locale === "en") {
     return {
       title: "Flare Alert",
-      description: "Volume spike alerts without per-coin tuning",
+      description: "Coin liquidity alerts",
     };
   }
 
   return {
     title: "Flare Alert",
-    description: "코인마다 임계치를 맞출 필요 없는 거래량 급등 알림",
+    description: "코인 유동성 알림",
   };
 }
 

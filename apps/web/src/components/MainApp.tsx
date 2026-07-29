@@ -59,9 +59,13 @@ export function MainApp() {
     <div className="flex min-h-screen flex-col">
       <header className="sticky top-0 z-40 border-b border-white/5 bg-surface/80 backdrop-blur-md">
         <div className="mx-auto flex w-full max-w-5xl items-center justify-between px-4 py-4 md:px-6">
-          <span className="text-headline font-bold text-primary">
+          <button
+            type="button"
+            onClick={() => setView({ kind: "list" })}
+            className="text-headline font-bold text-primary transition-opacity hover:opacity-80"
+          >
             {t.brand}
-          </span>
+          </button>
 
           <div className="flex items-center gap-2">
             <LanguageToggle />

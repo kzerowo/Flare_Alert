@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-_Last updated: 2026-07-29 12:00_
+_Last updated: 2026-07-29 03:39_
 
 ## Project Overview
 
@@ -119,8 +119,8 @@ Language-dependent formatting that used to live in core:
 │       └── 0001_init.sql  # profiles / channels / channel_symbols + RLS
 ├── docs/                  # Korean planning docs (algorithm/architecture/
 │                          #   research/decisions/deploy)
-├── vercel.json            # Monorepo build: core first, then web
-└── data/                  # Backtest data — gitignored, ~1.2GB
+├── data/                  # Backtest data — gitignored, ~1.2GB
+└── apps/web/vercel.json   # Vercel build config: monorepo build (core first, then web)
 ```
 
 ## Storage (Supabase, 2026-07-29)
