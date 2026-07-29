@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-_Last updated: 2026-07-29 19:27_
+_Last updated: 2026-07-29 19:32_
 
 ## Project Overview
 
@@ -532,6 +532,37 @@ A noise-picking algorithm would sit flat near 1.0x at every threshold. It doesn'
 - `measureQuality()` — for a given crossing stream and symbol prices, extract alerts and measure lift/hit rate/directional bias
 - Random horizons (1/5/15/60 seconds) use seeded PRNG for reproducibility
 - Results printed as `lift | hit% | up%` for each horizon, breaking down by symbol as aggregates for majors
+
+## Turnover Floor (measured 2026-07-29)
+
+`MIN_QUOTE_VOLUME` was the longest-standing unmeasured parameter, and it single-handedly decides whether small caps work at all. **The reason it stayed unmeasured is that the backtest could not ask the question**: `replay.ts` applied the floor during extraction, so everything below it was discarded before any analysis could see it. Crossings now carry `quoteVolume` and extraction runs with no floor (`EXTRACT_MIN_QUOTE_VOLUME = 0`, cache `MAGIC` bumped to `FLARE-CROSSINGS-3`).
+
+**Method** (`apps/backtest/src/turnover.ts`): the same lift measurement as § Alert Quality, but alerts are bucketed by the window's accumulated quote volume. Buckets are log-spaced — turnover spans four orders of magnitude across symbols, so linear buckets collapse everything into one.
+
+**Result — lift rises monotonically with turnover** (majors, 1-minute horizon, slider 26):
+
+| Window turnover | Alerts | Lift |
+|---|---|---|
+| 20K–50K | 21 | 0.21x |
+| 50K–200K | 60 | 1.18x |
+| 200K–1M | 110 | 1.74x |
+| 1M–5M | 193 | 2.20x |
+| 5M+ | 173 | 3.17x |
+
+**The within-symbol trend is what makes this credible.** LINK alone runs 0.21x → 1.18x → 1.36x → 2.31x → 3.34x across the five buckets; BTC runs 1.17x → 2.74x. Since the baseline is computed per symbol, this cannot be explained by "big coins move more" — inside a single coin, higher-turnover alerts predict more movement than lower-turnover ones.
+
+**The current floor of 50,000 USDT is too low for majors.** It admits the 50K–200K band at 1.18x, which is close enough to 1.0 to be noise. Real signal starts around 200K.
+
+**But the same measurement says nothing about small caps, and that is the whole reason the floor exists.** ANKR and ONE return `—` in every bucket: their random-baseline median 1-minute move is exactly 0, because a randomly chosen minute usually has no trades at all. Lift is undefined, not bad. Most of their alerts (36/49 and 80/95) sit below 50K, so **raising the floor would silence them almost entirely on the strength of data that does not describe them.**
+
+This is the real finding: a single absolute floor is doing two unrelated jobs — "is this tradeable" and "is this signal real" — and the evidence only speaks to the second, only for liquid symbols. Options, none yet chosen:
+- Raise the floor for majors and accept small caps are out of scope
+- Make the floor relative to the symbol's own typical turnover rather than absolute
+- Keep the floor low and surface turnover in the UI so the user judges
+
+`MIN_QUOTE_VOLUME` is **unchanged at 50,000** pending that product decision.
+
+**Also still open:** measuring small caps needs a different baseline. A 1-minute horizon on a coin that trades a few times an hour cannot produce a meaningful random comparison; a longer horizon or a trade-count-matched baseline would be needed.
 
 ## Known Gaps & Next Steps
 
