@@ -19,6 +19,7 @@ import { AlertHistory } from "./AlertHistory";
 import { AuthDialog } from "./AuthDialog";
 import { ChannelCard } from "./ChannelCard";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { ResetPasswordDialog } from "./ResetPasswordDialog";
 import { ChannelForm } from "./ChannelForm";
 import { Icon } from "./Icon";
 import { LanguageToggle } from "./LanguageToggle";
@@ -79,7 +80,7 @@ function usePush(signedIn: boolean) {
 
 export function MainApp() {
   const t = useT();
-  const { user, signOut } = useAuth();
+  const { user, signOut, recovering } = useAuth();
   const { channels, loaded, problem, dismissProblem, add, update, remove } =
     useChannels();
   const [view, setView] = useState<View>({ kind: "list" });
@@ -317,6 +318,9 @@ export function MainApp() {
       {auth === null ? null : (
         <AuthDialog mode={auth} onClose={() => setAuth(null)} />
       )}
+
+      {/* 재설정 링크로 들어온 경우. 다른 창보다 우선한다. */}
+      {recovering ? <ResetPasswordDialog /> : null}
 
       {pendingRemove === null ? null : (
         <ConfirmDialog

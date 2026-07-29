@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-_Last updated: 2026-07-29 19:15_
+_Last updated: 2026-07-29 19:20_
 
 ## Project Overview
 
@@ -519,13 +519,15 @@ A noise-picking algorithm would sit flat near 1.0x at every threshold. It doesn'
 4. **Storage** — ✅ schema, auth, channel persistence, push subscriptions, and alert logging (see § Storage).
    - ✅ `push_subscriptions` table (created 2026-07-29)
    - ✅ `alerts` table with Realtime broadcasting (created 2026-07-29)
-   - Still missing: password reset, Telegram linking flow (if we ever go back to dual-mode).
+   - ✅ Password reset via email (2026-07-29): recovery flow triggered by PASSWORD_RECOVERY event, temporary session with reset dialog
+   - Still missing: Telegram linking flow (if we ever go back to dual-mode).
 5. **Web UI — Main page** (merged landing + channel creation):
    - ✅ `MainApp` — guest/member split driven by real auth state
    - ✅ `ChannelCard` — edit/delete/toggle channel actions; displays single coin in header with icon (2026-07-29)
    - ✅ `ChannelForm` — create/edit UI with single-coin radio selection + `SensitivitySlider`; coin picker uses icons (2026-07-29)
    - ✅ `CoinIcon` — renders SVG coin icon if available, falls back to color dot (2026-07-29)
-   - ✅ `AuthDialog` — functional email/password against Supabase Auth
+   - ✅ `AuthDialog` — functional email/password against Supabase Auth; "forgot password" flow (2026-07-29)
+   - ✅ `ResetPasswordDialog` (2026-07-29): Triggered by PASSWORD_RECOVERY event; sets new password with confirmation field; blocks closing via background click to prevent accidental dismissal (link gets consumed)
    - ✅ Web Push subscription (2026-07-29): permission request, subscription creation, persistence to Supabase
    - ✅ Service worker registration (`public/sw.js`): message handling, Notification display
    - ✅ Korean/English toggle

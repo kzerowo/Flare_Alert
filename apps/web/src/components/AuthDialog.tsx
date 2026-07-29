@@ -7,7 +7,7 @@ import type { AuthProblem } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
 import { Icon } from "./Icon";
 
-type Mode = "login" | "signup";
+type Mode = "login" | "signup" | "forgot";
 
 interface Props {
   mode: Mode;
@@ -26,7 +26,7 @@ interface Props {
  */
 export function AuthDialog({ mode, onClose }: Props) {
   const t = useT();
-  const { signIn, signUp, available } = useAuth();
+  const { signIn, signUp, sendPasswordReset, available } = useAuth();
 
   const [current, setCurrent] = useState<Mode>(mode);
   const [email, setEmail] = useState("");
@@ -34,8 +34,10 @@ export function AuthDialog({ mode, onClose }: Props) {
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<AuthProblem | null>(null);
   const [sentConfirmation, setSentConfirmation] = useState(false);
+  const [sentReset, setSentReset] = useState(false);
 
   const isLogin = current === "login";
+  const isForgot = current === "forgot";
 
   async function submit(event: React.FormEvent): Promise<void> {
     event.preventDefault();
@@ -47,14 +49,21 @@ export function AuthDialog({ mode, onClose }: Props) {
     setBusy(true);
     setProblem(null);
 
-    const result = isLogin
-      ? await signIn(email, password)
-      : await signUp(email, password);
+    const result = isForgot
+      ? await sendPasswordReset(email)
+      : isLogin
+        ? await signIn(email, password)
+        : await signUp(email, password);
 
     setBusy(false);
 
     if (!result.ok) {
       setProblem(result.problem ?? "unknown");
+      return;
+    }
+
+    if (isForgot) {
+      setSentReset(true);
       return;
     }
 
@@ -68,10 +77,11 @@ export function AuthDialog({ mode, onClose }: Props) {
     onClose();
   }
 
-  function switchMode(): void {
-    setCurrent(isLogin ? "signup" : "login");
+  function goTo(next: Mode): void {
+    setCurrent(next);
     setProblem(null);
     setSentConfirmation(false);
+    setSentReset(false);
   }
 
   return (
@@ -89,10 +99,14 @@ export function AuthDialog({ mode, onClose }: Props) {
               <Icon name="bell" size={24} />
             </span>
             <h2 className="text-display">
-              {isLogin ? t.auth.login : t.auth.signup}
+              {isForgot
+                ? t.auth.forgotTitle
+                : isLogin
+                  ? t.auth.login
+                  : t.auth.signup}
             </h2>
             <p className="mt-1 text-body-sm text-on-surface-variant">
-              {t.auth.subtitle}
+              {isForgot ? t.auth.forgotSubtitle : t.auth.subtitle}
             </p>
           </div>
 
@@ -106,9 +120,9 @@ export function AuthDialog({ mode, onClose }: Props) {
           </button>
         </div>
 
-        {sentConfirmation ? (
+        {sentConfirmation || sentReset ? (
           <p className="mt-12 rounded-lg border border-primary/30 bg-primary/5 p-4 text-body-sm leading-relaxed text-on-surface">
-            {t.auth.checkEmail}
+            {sentReset ? t.auth.resetSent : t.auth.checkEmail}
           </p>
         ) : (
           <form className="mt-12 space-y-6" onSubmit={submit}>
@@ -134,6 +148,7 @@ export function AuthDialog({ mode, onClose }: Props) {
               </div>
             </div>
 
+            {isForgot ? null : (
             <div className="space-y-1">
               <label htmlFor="auth-password" className="label block px-1 text-on-surface-variant">
                 {t.auth.password}
@@ -156,6 +171,17 @@ export function AuthDialog({ mode, onClose }: Props) {
                 />
               </div>
             </div>
+            )}
+
+            {isForgot || !isLogin ? null : (
+              <button
+                type="button"
+                onClick={() => goTo("forgot")}
+                className="w-full text-right text-body-sm text-on-surface-variant transition-colors hover:text-primary"
+              >
+                {t.auth.forgotLink}
+              </button>
+            )}
 
             {problem === null ? null : (
               <p className="rounded-lg border border-danger/30 bg-danger/5 p-4 text-body-sm text-danger">
@@ -170,9 +196,11 @@ export function AuthDialog({ mode, onClose }: Props) {
             >
               {busy
                 ? t.auth.working
-                : isLogin
-                  ? t.auth.submitLogin
-                  : t.auth.submitSignup}
+                : isForgot
+                  ? t.auth.submitReset
+                  : isLogin
+                    ? t.auth.submitLogin
+                    : t.auth.submitSignup}
               {busy ? null : <Icon name="arrow-right" size={16} />}
             </button>
           </form>
@@ -184,7 +212,7 @@ export function AuthDialog({ mode, onClose }: Props) {
 
         <button
           type="button"
-          onClick={switchMode}
+          onClick={() => goTo(isLogin ? "signup" : "login")}
           className="mt-6 w-full text-center text-body-sm text-on-surface-variant transition-colors hover:text-primary"
         >
           {isLogin ? (

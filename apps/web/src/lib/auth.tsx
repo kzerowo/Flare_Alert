@@ -48,6 +48,20 @@ interface Auth {
   signIn: (email: string, password: string) => Promise<AuthResult>;
   signUp: (email: string, password: string) => Promise<AuthResult>;
   signOut: () => Promise<void>;
+  /** 재설정 링크를 메일로 보낸다. */
+  sendPasswordReset: (email: string) => Promise<AuthResult>;
+  /** 재설정 링크로 들어온 세션에서 새 비밀번호를 저장한다. */
+  updatePassword: (password: string) => Promise<AuthResult>;
+  /**
+   * 재설정 링크를 타고 들어왔는지.
+   *
+   * Supabase가 링크의 토큰으로 임시 세션을 만들어 주므로 이때는 이미
+   * "로그인된" 상태다. 그대로 두면 사용자는 비밀번호를 바꾸러 왔다가
+   * 그냥 메인 화면을 보게 된다. 이 값이 true인 동안 새 비밀번호 화면을 띄운다.
+   */
+  recovering: boolean;
+  /** 재설정을 마쳤거나 사용자가 그만둘 때. */
+  endRecovery: () => void;
 }
 
 const Context = createContext<Auth | null>(null);
@@ -86,6 +100,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const client = getBrowserClient();
   const [user, setUser] = useState<User | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [recovering, setRecovering] = useState(false);
 
   useEffect(() => {
     if (client === null) {
@@ -105,9 +120,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     });
 
-    const { data } = client.auth.onAuthStateChange((_event, session) => {
-      if (alive) {
-        setUser(session?.user ?? null);
+    const { data } = client.auth.onAuthStateChange((event, session) => {
+      if (!alive) {
+        return;
+      }
+      setUser(session?.user ?? null);
+
+      // 재설정 링크를 타고 들어오면 Supabase가 임시 세션을 만들고 이 이벤트를
+      // 던진다. 이걸 잡지 않으면 사용자는 비밀번호를 바꾸러 왔다가 그냥
+      // 로그인된 메인 화면을 보게 된다.
+      if (event === "PASSWORD_RECOVERY") {
+        setRecovering(true);
       }
     });
 
@@ -156,7 +179,50 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [client],
   );
 
+  const sendPasswordReset = useCallback(
+    async (email: string): Promise<AuthResult> => {
+      if (client === null) {
+        return { ok: false, problem: "unavailable" };
+      }
+
+      const { error } = await client.auth.resetPasswordForEmail(email, {
+        // 메일의 링크가 돌아올 곳. 지정하지 않으면 Supabase의 Site URL로
+        // 가는데, 로컬에서 개발 중일 때 배포 주소로 튀어 버린다.
+        redirectTo: window.location.origin,
+      });
+
+      if (error !== null) {
+        return { ok: false, problem: classify(error.message, error.status) };
+      }
+      return { ok: true };
+    },
+    [client],
+  );
+
+  const updatePassword = useCallback(
+    async (password: string): Promise<AuthResult> => {
+      if (client === null) {
+        return { ok: false, problem: "unavailable" };
+      }
+
+      const { error } = await client.auth.updateUser({ password });
+
+      if (error !== null) {
+        return { ok: false, problem: classify(error.message, error.status) };
+      }
+
+      setRecovering(false);
+      return { ok: true };
+    },
+    [client],
+  );
+
+  const endRecovery = useCallback(() => {
+    setRecovering(false);
+  }, []);
+
   const signOut = useCallback(async () => {
+    setRecovering(false);
     if (client !== null) {
       await client.auth.signOut();
     }
@@ -170,8 +236,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       signIn,
       signUp,
       signOut,
+      sendPasswordReset,
+      updatePassword,
+      recovering,
+      endRecovery,
     }),
-    [user, loaded, client, signIn, signUp, signOut],
+    [
+      user,
+      loaded,
+      client,
+      signIn,
+      signUp,
+      signOut,
+      sendPasswordReset,
+      updatePassword,
+      recovering,
+      endRecovery,
+    ],
   );
 
   return <Context.Provider value={value}>{children}</Context.Provider>;
