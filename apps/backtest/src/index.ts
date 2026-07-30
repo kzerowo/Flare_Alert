@@ -15,6 +15,7 @@ import {
   MIN_QUOTE_VOLUME,
   SENSITIVITY_DEFAULT,
   TIMEFRAMES,
+  TIMEFRAME_MINUTES,
   percentileToSlider,
   sliderToPercentile,
   sliderToRatio,
@@ -903,6 +904,181 @@ async function labelFit(
   }
 }
 
+/**
+ * 봉 길이 × 배수 → 하루 알림 수.
+ *
+ * 슬라이더가 배수가 아니라 "어느 길이의 봉으로 볼지"를 정하는 설계로 가려면,
+ * 봉 길이마다 배수를 똑같이 줘도 되는지부터 정해야 한다. 짧은 봉일수록 원래
+ * 심하게 튀므로 같은 4배라도 뜻이 다를 수 있다.
+ *
+ * 사람이 준 기준점이 두 개 있다.
+ *
+ *   15분봉급 · 4배 → 하루 4.2회   (사용자가 차트에 직접 표시한 것)
+ *   1분봉급          → 하루 몇십 회 (사용자 진술)
+ *
+ * 배수를 4로 고정했을 때 1분봉이 몇십 회 근처로 떨어지면 고정이 맞다.
+ * 수백 회가 나오면 봉 길이마다 배수를 다르게 줘야 한다는 뜻이고, 그때는
+ * 목표 빈도에서 배수를 역산한 아래쪽 표가 답이 된다.
+ */
+function scaleSweep(streams: readonly CrossingStream[]): void {
+  // 추출 단계가 배수 3 미만을 담지 않았으므로 3부터 훑는다.
+  const RATIOS = [3, 4, 5, 6, 8, 10, 15, 20, 30];
+
+  // 소형주는 거래대금 하한에 걸리는 비율이 커서 같은 표에 섞으면 평균이
+  // 눌린다. 하한 결정이 끝나지 않았으므로 대형주만으로 본다.
+  const MAJORS = ["BTCUSDT", "ETHUSDT", "SOLUSDT"];
+  const majors = streams.filter((s) => MAJORS.includes(s.symbol));
+
+  /** 봉 길이 하나에 배수 하나를 걸었을 때 대형주 평균 하루 알림 수. */
+  const rateOf = (frame: number, ratio: number, gap: number): number => {
+    const perSymbol = majors.map(
+      (stream) =>
+        evaluate(stream, {
+          sensitivity: 0,
+          ratioThreshold: ratio,
+          eventGapSeconds: gap,
+          cooldownScale: 1,
+          tightening: TIGHTENING,
+          onlyFrame: frame,
+        }).alertsPerDay,
+    );
+    return perSymbol.reduce((s, v) => s + v, 0) / Math.max(perSymbol.length, 1);
+  };
+
+  // 사건 간격은 봉 길이에 비례시킨다. 300초 고정으로 두면 1일봉급에서 잠깐
+  // 식은 구간마다 사건이 쪼개지고, 1분봉급에서는 별개 급등이 한 덩어리로
+  // 묶인다. 비교를 위해 고정 300초도 같이 낸다.
+  const GAP_MODES = [
+    { name: "봉 길이", gapOf: (w: number) => w },
+    { name: "300초 고정", gapOf: () => 300 },
+  ] as const;
+
+  for (const mode of GAP_MODES) {
+    console.log("");
+    console.log("═".repeat(78));
+    console.log(
+      `봉 길이 × 배수 → 하루 알림 수 (대형주 3종목 평균, 사건간격 ${mode.name})`,
+    );
+    console.log("");
+    console.log(
+      pad("봉", 8) + RATIOS.map((r) => padStart(`${r}x`, 8)).join(""),
+    );
+
+    for (let frame = 0; frame < TIMEFRAMES.length; frame += 1) {
+      const timeframe = TIMEFRAMES[frame];
+      if (timeframe === undefined) {
+        continue;
+      }
+      const gap = mode.gapOf(TIMEFRAME_MINUTES[timeframe] * 60);
+
+      const cells = RATIOS.map((ratio) => {
+        const perDay = rateOf(frame, ratio, gap);
+        return padStart(perDay >= 10 ? perDay.toFixed(0) : perDay.toFixed(2), 8);
+      });
+
+      console.log(pad(timeframe, 8) + cells.join(""));
+    }
+  }
+
+  // ---- 목표 빈도에서 배수를 역산한다 ----
+  //
+  // 배수를 고정할 수 없다는 결론이 나면 이 표가 곧 답이다. 봉 길이마다
+  // "하루 N회가 되려면 몇 배여야 하는가"를 로그 보간으로 찾는다.
+  const TARGETS = [30, 10, 4.2, 1, 0.3];
+  const gapOf = (frame: number): number => {
+    const timeframe = TIMEFRAMES[frame];
+    return timeframe === undefined ? 300 : TIMEFRAME_MINUTES[timeframe] * 60;
+  };
+
+  console.log("");
+  console.log("═".repeat(78));
+  console.log("목표 빈도를 맞추는 배수 (사건간격 = 봉 길이)");
+  console.log("");
+  console.log("빈도는 배수에 대해 단조 감소하므로 이분 탐색으로 찾는다.");
+  console.log("");
+  console.log(
+    pad("봉", 8) + TARGETS.map((t) => padStart(`${t}회/일`, 10)).join(""),
+  );
+
+  for (let frame = 0; frame < TIMEFRAMES.length; frame += 1) {
+    const timeframe = TIMEFRAMES[frame];
+    if (timeframe === undefined) {
+      continue;
+    }
+    const gap = gapOf(frame);
+
+    const cells = TARGETS.map((target) => {
+      // 배수 3~60 사이에서 이분 탐색. 경계 밖이면 화살표로 표시한다.
+      let low = 3;
+      let high = 60;
+
+      if (rateOf(frame, low, gap) < target) {
+        return padStart("<3", 10);
+      }
+      if (rateOf(frame, high, gap) > target) {
+        return padStart(">60", 10);
+      }
+
+      for (let i = 0; i < 24; i += 1) {
+        const mid = Math.sqrt(low * high);
+        if (rateOf(frame, mid, gap) > target) {
+          low = mid;
+        } else {
+          high = mid;
+        }
+      }
+
+      return padStart(`${Math.sqrt(low * high).toFixed(1)}x`, 10);
+    });
+
+    console.log(pad(timeframe, 8) + cells.join(""));
+  }
+
+  // ---- 봉 길이와 배수가 사실 한 축인지 ----
+  //
+  // 위 역산표에서 (배수 − 1) × 봉길이가 봉을 가로질러 거의 같은 값이었다.
+  // 그 곱이 뜻하는 것은 "평소보다 더 거래된 양이 평소 몇 분치인가"다.
+  //
+  //   봉 길이 W분이 평소의 R배  ⇔  초과분 = (R − 1) × W 분치
+  //
+  // 정말 한 축이라면, 초과분을 고정하고 봉 길이만 바꿔도 하루 알림 수가
+  // 비슷해야 한다. 그러면 사용자는 봉 길이와 배수를 따로 고를 필요가 없고
+  // 슬라이더 하나가 초과분 하나만 정하면 된다.
+  const EXCESS = [15, 30, 45, 90, 180];
+
+  console.log("");
+  console.log("═".repeat(78));
+  console.log("초과분을 고정하고 봉 길이만 바꿨을 때 (사건간격 = 봉 길이)");
+  console.log("");
+  console.log("초과분 X분치 → 그 봉에서 필요한 배수 R = 1 + X / 봉길이(분).");
+  console.log("가로로 값이 비슷하면 봉 길이와 배수는 한 축이라는 뜻이다.");
+  console.log("※ 표시는 R < 3 이라 추출 하한에 걸려 실제보다 적게 세어진 칸.");
+  console.log("");
+  console.log(
+    pad("봉", 8) + EXCESS.map((x) => padStart(`${x}분치`, 12)).join(""),
+  );
+
+  for (let frame = 0; frame < TIMEFRAMES.length; frame += 1) {
+    const timeframe = TIMEFRAMES[frame];
+    if (timeframe === undefined) {
+      continue;
+    }
+    const minutes = TIMEFRAME_MINUTES[timeframe];
+    const gap = minutes * 60;
+
+    const cells = EXCESS.map((excess) => {
+      const ratio = 1 + excess / minutes;
+      const perDay = rateOf(frame, ratio, gap);
+      const shown = perDay >= 10 ? perDay.toFixed(0) : perDay.toFixed(2);
+      // 추출이 배수 3 미만을 담지 않았으므로 그 아래는 신뢰할 수 없다.
+      const flag = ratio < 3 ? "※" : " ";
+      return padStart(`${shown}(${ratio.toFixed(1)}x)${flag}`, 12);
+    });
+
+    console.log(pad(timeframe, 8) + cells.join(""));
+  }
+}
+
 async function main(): Promise<void> {
   const here = path.dirname(fileURLToPath(import.meta.url));
   const dataDir = path.resolve(here, "../../../data/prepared");
@@ -929,6 +1105,9 @@ async function main(): Promise<void> {
   //   pnpm --filter @flare-alert/backtest start label
   const stage = process.argv[2] ?? "all";
 
+  if (stage === "all" || stage === "scale") {
+    scaleSweep(streams);
+  }
   if (stage === "all" || stage === "curve") {
     ratioCurve(streams);
   }

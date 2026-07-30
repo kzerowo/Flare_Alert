@@ -2,13 +2,15 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-_Last updated: 2026-07-30 01:11_
+_Last updated: 2026-07-30 15:04_
 
 ## Project Overview
 
-**Flare Alert** is an adaptive volume-spike alert service for cryptocurrency traders. Users create **channels**; each channel watches one coin at one sensitivity level. Thresholds are percentile-based and calibrated per coin (from each symbol's own score distribution), so a single sensitivity setting transfers across coins of wildly different liquidity, instead of a fixed multiplier that needs per-symbol tuning.
+**Flare Alert** is an adaptive volume-spike alert service for cryptocurrency traders. Users create **channels**; each channel watches one coin at one sensitivity level. A channel fires when trailing turnover reaches N× the median of recent comparable windows — a ratio, not a percentile, because that is the number a user can verify against a chart.
 
-**Percentiles do not make alert frequency predictable.** Evaluation runs every second, so "top 5% of seconds" is not "5% of events" — a single event crosses the threshold for hundreds of consecutive seconds. See `docs/algorithm.md` § 백테스트 결과.
+**Read § Scale-Driven Sensitivity before touching detection.** The current code pins the window at 15m and moves only the ratio; the user has explicitly rejected that, and the replacement is measured but unimplemented. `docs/algorithm.md` predates the ratio rewrite entirely and describes a percentile pipeline that no longer exists — do not treat it as current.
+
+**Percentiles never made alert frequency predictable.** Evaluation runs every second, so "top 5% of seconds" is not "5% of events" — a single event crosses the threshold for hundreds of consecutive seconds. This is why the percentile axis was abandoned.
 
 Distribution is via **native mobile apps** (App Store/Play Store) once the web app is complete — not Telegram. Web Push (RFC 8291 + VAPID) is the current delivery mechanism; mobile push comes later.
 
@@ -67,8 +69,10 @@ All actively traded on Binance USDT. Coin icons live in `apps/web/public/coins/`
 ├── apps/
 │   ├── backtest/          # Offline replay harness (not deployed)
 │   │   ├── scripts/
-│   │   │   ├── fetch-klines.mjs  # Download Binance public dumps
+│   │   │   ├── fetch-klines.mjs  # Download Binance public dumps (monthly)
 │   │   │   ├── prepare.mjs       # CSV → compact binary
+│   │   │   ├── label-window.mjs  # Expand a user-labeled hour minute-by-minute (REST)
+│   │   │   ├── minute-rate.mjs   # Alerts/day at the 1m scale over N days (REST)
 │   │   │   └── lib/zip.mjs       # Minimal ZIP reader (no deps)
 │   │   └── src/
 │   │       ├── data.ts             # Load/concat prepared series
@@ -212,13 +216,15 @@ A `Channel` = **one coin** + one sensitivity + delivery methods. Users have many
 
 ### Sensitivity Model
 
-The slider sets a **ratio**, not a percentile. Meaning: "alert when the last 15 minutes of turnover reaches N× the median of the previous 32 fifteen-minute windows."
+**As implemented (current code):** the slider sets a **ratio** only; the window is always 15m.
 
 - `RATIO_AT_SLIDER_MIN` 10 (slider 1, quiet) → `RATIO_AT_SLIDER_MAX` 1.5 (slider 100, frequent); logarithmic axis, since 1.5→2 matters and 9→10 does not.
 - `RATIO_DEFAULT` 4 sits at slider 49. Chosen from the user's own chart labels — see § Label-Based Measurement.
-- Slider tick marks are ratios (8/6/4/3/2), not frame names. Frame labels were removed: they claimed "at this position you catch 1분봉급 spikes," which stopped being true once detection became a single 15m window.
-- `estimateAlertsPerDay(sliderPosition)` interpolates `CHANNEL_RATE_CURVE`, remeasured under the ratio rule. The curve flattens above slider ~85 (≈11/day): below ~2× the signal sits above threshold almost continuously, so event-gap merging absorbs the extra crossings.
+- Slider tick marks are ratios (8/6/4/3/2), not frame names.
+- `estimateAlertsPerDay(sliderPosition)` interpolates `CHANNEL_RATE_CURVE`.
 - Exports: `sliderToRatio()`, `ratioToSlider()`, `sliderToPercentile()`, `percentileToSlider()`, `estimateAlertsPerDay()`, `SLIDER_MIN`, `SLIDER_MAX`
+
+**As decided (2026-07-30, not yet implemented):** the slider must set the **window length**, not the ratio. See § Scale-Driven Sensitivity below — this is the next implementation task and it invalidates the three bullets above.
 
 `FRAME_SCALE_PERCENTILE` still exists but no longer drives anything.
 
@@ -252,7 +258,7 @@ Realtime (tab open) and Web Push (tab closed) are complementary, not duplicative
 
 | Constant | Value | Note |
 |---|---|---|
-| `DETECTION_TIMEFRAME` | `15m` | The only frame that fires alerts. Beat the 6-frame max on the user's labels (64%/74% vs. 39%/28%). |
+| `DETECTION_TIMEFRAME` | `15m` | The only frame that fires alerts. **Superseded** — the slider must drive the window; see § Scale-Driven Sensitivity. The measurement behind this value was taken with the extrapolation bug live. |
 | `RATIO_DEFAULT` | 4 | Slider 49. ~4 alerts/day on majors. |
 | `SENSITIVITY_DEFAULT` | 99.8007 | The percentile that maps to slider 49 → 4×. Storage is still percentile-shaped; see § Detection Pipeline. |
 | `RATIO_AT_SLIDER_MIN` / `_MAX` | 10 / 1.5 | Slider ends, log axis |
@@ -273,7 +279,7 @@ cp .env.example .env
 pnpm dev:web                # builds core, then next dev on :3000
 pnpm dev:detector           # builds core, then runs detector (live Binance)
 
-pnpm test                   # 83 tests (72 core + 11 detector)
+pnpm test                   # 86 tests (75 core + 11 detector)
 pnpm typecheck              # all 4 workspaces
 pnpm build                  # topological build
 pnpm clean
@@ -301,7 +307,19 @@ pnpm --filter @flare-alert/backtest build
 pnpm --filter @flare-alert/backtest start         # extract + sweep
 ```
 
-Crossing extraction takes ~1 minute/symbol, cached to `data/crossings/`. Subsequent runs sweep parameters in seconds. Bump `MAGIC` in `crossings.ts` if the cache format changes (currently `FLARE-CROSSINGS-3`).
+Crossing extraction takes ~1 minute/symbol, cached to `data/crossings/`. Subsequent runs sweep parameters in seconds. Bump `MAGIC` in `crossings.ts` if the cache format changes (currently `FLARE-CROSSINGS-4`).
+
+`start` takes an optional stage so you don't re-run everything: `scale` (window × ratio → alerts/day), `curve`, `label`, `quality`, `turnover`, `hour`. Default `all`.
+
+**The crossing cache only retains `ratio ≥ 3` (or `percentile ≥ 89`).** Sweeping below 3× reads as artificially quiet; lower `EXTRACT_MIN_RATIO` in `index.ts` and bump `MAGIC` first.
+
+```bash
+# Recent data via public REST — data/prepared is monthly dumps and lags the current month.
+node scripts/label-window.mjs --start "2026-07-30 13:29 KST" --before 5 --after 72
+node scripts/minute-rate.mjs --days 14
+```
+
+`label-window.mjs` expands one hour minute-by-minute with both candidate baselines side by side, for matching against a screenshot the user marked up. `minute-rate.mjs` counts alerts/day at the 1m scale over N days. Neither needs an API key; both write nothing except `data/labels/`.
 
 ### Notes
 
@@ -344,7 +362,7 @@ Next.js reads `apps/web/.env.local`, not the root `.env`. There is no Binance AP
 
 ## Testing
 
-`packages/core`: 72 tests (`node:test`) — math primitives, baseline/score edge cases, percentile accuracy vs. exact sorted ranks, day-based sample eviction, cooldown behavior, slider↔percentile round-trips, scale markers, alert-rate description thresholds.
+`packages/core`: 75 tests (`node:test`) — math primitives, baseline/score edge cases, percentile accuracy vs. exact sorted ranks, day-based sample eviction, cooldown behavior, slider↔percentile round-trips, scale markers, alert-rate description thresholds.
 
 `apps/detector`: 11 tests — window alignment to absolute epoch boundaries, elapsed-time gating, velocity computation, late/early trade buffer, and (most importantly) that minute-granularity backfill and second-granularity live stepping produce identical windows — this is what lets cold-start priming share the live code path.
 
@@ -467,12 +485,89 @@ The label-based measurement discovered that the user's actual criterion is ratio
 
 Expected outcome: if ratio mode outperforms percentile, the detector's core logic may pivot from percentile-based to ratio-based thresholds, with a simpler channel model (just "multiply by N" instead of "percentile slider").
 
+## Scale-Driven Sensitivity (decided 2026-07-30, NOT yet implemented)
+
+**The user rejected the fixed 15m detection window.** Their stated requirement, verbatim:
+
+1. The liquidity criterion must not be "the 15-minute bar."
+2. Timeframes must never be the evaluation axis — they are only a reference label saying "at this slider position, this is the bar length you're effectively watching."
+3. Storage cost is acceptable; a very quiet sensitivity legitimately needs more history.
+
+So the slider must move the **window length**, and the ratio follows from it. This inverts the current code, where the window is pinned at 15m and only the ratio moves.
+
+### The evidence that led here was contaminated
+
+The measurement that justified `DETECTION_TIMEFRAME = "15m"` (frame isolation: "15m alone beats the 6-frame max") was run **while the partial-window extrapolation bug was still live** — `git show 60a2fc8` removes `MIN_ELAPSED_SECONDS` and narrows to a single frame in the *same commit*. The 1m/5m frames were inflated ~4× at the time they were scored, which is exactly why the noisiest frame always won. **That verdict has never been re-tested under trailing windows.** Do not cite it as settled.
+
+### Measured: scale × ratio → alerts/day
+
+`pnpm --filter @flare-alert/backtest start scale`. Majors (BTC/ETH/SOL), 61 days, event gap = window length.
+
+At a **fixed** 4×:
+
+| Window | 1m | 5m | 15m | 1h | 4h | 1d |
+|---|---|---|---|---|---|---|
+| Alerts/day | 87 | 12 | 3.5 | 0.8 | 0.12 | **0.00** |
+
+A fixed ratio does not work across scales. Inverting for a sane rate at each scale gives the **slider path**:
+
+| Slider | Window | Ratio | Alerts/day |
+|---|---|---|---|
+| most sensitive | 1m | **8.4×** | 30 |
+| | 5m | 4.5× | 10 |
+| default | 15m | 3.6× | 4.2 |
+| | 1h | 3.4× | 1 |
+| quietest | 4h | 3.0× | 0.3 |
+
+**The ratio is nearly constant (4.5×→3.0×) from 5m out to 4h.** Only the 1m end needs a distinctly higher bar, because short bars are intrinsically spikier. So "is R fixed or does it vary?" resolves to: *effectively fixed at ~3–4×, with 1m as the single exception.*
+
+### The 1d scale does not exist
+
+At **every** ratio down to 1.1×, a 1-day trailing window on majors produces ≈0 alerts (61 days, three symbols, not one occurrence at 3×). Aggregating a full day averages any spike away. **The slider's quiet end stops at 4h.** Remove `1d` from the scale options; `FRAME_SCALE_PERCENTILE["1d"]` ("slider 1, 0.6/day") is a percentile-era number that does not survive.
+
+### The 1m end, confirmed twice independently
+
+The user labeled a BTC 1-minute chart, **2026-07-30 13:29–14:41 KST** (first mark 13:29 KST = 04:29 UTC), instructed to mark "bars that stand out against the recent average," explicitly ignoring weekend/dead-hour absolute levels.
+
+`node scripts/label-window.mjs --start "2026-07-30 13:29 KST" --before 5 --after 72` expands that hour minute-by-minute. 13:29 lands at rank 2 of the window (32.3× the 60-minute median), confirming the alignment.
+
+Nine minutes stand out clearly: **13:24, 13:29, 13:38, 13:39, 13:44, 14:09, 14:14, 14:19, 14:25** (13:24 is likely off the left edge of the screenshot). Those are ≥8.3× the 60-minute median.
+
+Naively extrapolating 9 marks / 72 min gives ~190/day, which contradicted the user's own "dozens per day." The user immediately flagged why: that was a deliberately *active* hour. Measuring 14 real days settles it (`node scripts/minute-rate.mjs --days 14`):
+
+| Threshold | median-60 baseline | MA-20 baseline |
+|---|---|---|
+| 4× | 63.3/day | 40.6/day |
+| **8×** | **28.7/day** | 14.9/day |
+| 10× | 22.1/day | 11.1/day |
+
+**median-60 at ~8.3× → 27.5 alerts/day.** This matches (a) the user's verbal "하루 몇십번", (b) the user's actual chart marks, and (c) the independent April–June backtest that put 1m@8.4× at 30/day. Three routes, one answer. `RATIO_AT_1M ≈ 8.4` is the best-supported constant in the project right now.
+
+### Open: which baseline — rolling median or moving average?
+
+The user described marking against "the recent average volume," which is the chart's volume MA (a fast, 20-period line), not the algorithm's 60-minute median (a slow, flat line). These diverge when volume ramps gradually: the median says "already 4× above normal," the MA says "neighbours are high too, nothing stands out."
+
+**In the labeled hour the distinction did not matter** — both baselines select the same top 9 minutes, only reordered. But over 14 days they diverge sharply in rate (8.3× median = 27.5/day; 2.65× MA = 69.3/day).
+
+**The decisive experiment is a label from a QUIET hour** — a weekend or dead session, which the user already planned as their second and third labeling passes. If the user marks bars there that median-60 misses (because everything is small in absolute terms) but MA-20 catches, the baseline must change. One active hour cannot separate them.
+
+### Implementation plan (next session)
+
+Not started, deliberately — the baseline question above changes the numbers, and shipping half of this is worse than shipping none.
+
+1. `packages/core`: replace `RATIO_DEFAULT` + `sliderToRatio()` with a scale axis. Slider → `(windowSeconds, ratio)` pair, interpolated along the five-point path above; drop `1d`.
+2. `packages/core`: derive the tick labels from the pair, so "15분봉급" is a definition rather than an empirical claim that can go stale.
+3. `apps/detector`: `channel-runtime.ts` reads the channel's window length instead of `DETECTION_TIMEFRAME`; `aggregator.ts` already emits every frame, so `decide()` picks its slice by the channel's scale.
+4. Schema: `channels.sensitivity` still stores a percentile that is converted twice at runtime. Migrate to storing the slider position or the `(window, ratio)` pair directly before this ships — the double conversion silently reinterprets stored settings whenever the axis moves.
+5. Re-run `start scale` and `start label` afterward; `CHANNEL_RATE_CURVE` is measured under the fixed-15m rule and will be wrong.
+
 ## Known Gaps & Next Steps
 
 1. **Alert quality** — ✅ measured, hour-of-day confound controlled (2.08x corrected). Open: confirmation on 2–3 more symbols; hit-rate targets for a product callout.
 2. **`MIN_QUOTE_VOLUME`** — ✅ measurement infrastructure + two rounds of data (see § Turnover Floor). Open: the product decision on where/how to set the floor.
 3. **Detector pipeline** — ✅ complete end-to-end. Open: confirm alert rate with a multi-day real-time run; measure user retention/engagement.
-4. **Ratio vs. percentile** — 🔄 backtest instrumentation in place (2026-07-30); ready for comparative evaluation.
+4. **Ratio vs. percentile** — ✅ ratio won; the detector runs on ratios.
+4b. **Scale-driven slider** — 🔄 **the active workstream.** Measured and decided (§ Scale-Driven Sensitivity); nothing implemented yet. Two things gate it: a quiet-hour label from the user to settle median-vs-MA baseline, and the schema migration off percentile storage.
 5. **Storage** — ✅ schema, auth, channel persistence, push subscriptions, alert logging, password reset. Open: alert retention policy (table grows unbounded).
 6. **Web UI** — ✅ MainApp, ChannelCard, ChannelForm, CoinIcon, AuthDialog + password reset, Web Push subscription, service worker, ko/en toggle, alert history view (all complete).
 7. **Deployment** — Vercel connected and building. `apps/detector/deploy/` (systemd unit + `setup.sh`) ready for Oracle Cloud; needs the user to provision a VM and run it. `NEXT_PUBLIC_VAPID_PUBLIC_KEY` still needs to be added to Vercel's env vars for push to work on the deployed site.
