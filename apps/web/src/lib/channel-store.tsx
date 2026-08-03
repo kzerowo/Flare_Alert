@@ -12,8 +12,11 @@ import {
 import type { ReactNode } from "react";
 
 import {
-  DEFAULT_SCALE,
+  DEFAULT_SENSITIVITY_LEVEL,
+  SENSITIVITY_LEVEL_MAX,
+  SENSITIVITY_LEVEL_MIN,
   isScaleTimeframe,
+  levelForScale,
   percentileToScale,
 } from "@flare-alert/core";
 import type { Channel } from "@flare-alert/core";
@@ -85,14 +88,33 @@ function normalizeChannel(raw: unknown): Channel | null {
     record.symbol = null;
   }
 
-  // 민감도가 백분위이던 시절의 값. 봉 길이로 옮긴다. 슬라이더 위에서의
-  // 상대적 위치(조용한 쪽인지 잦은 쪽인지)는 그대로 유지된다.
-  if (typeof record.scale !== "string" || !isScaleTimeframe(record.scale)) {
-    record.scale =
+  // 민감도는 세 세대를 거쳤다 — 백분위, 봉 길이(다섯 칸), 그리고 지금의
+  // 1~100 위치. 게스트 데이터는 세션에 얼마든지 오래 남아 있을 수 있어서
+  // 세 모양을 다 받아 준다. 순서는 detector·Supabase 읽기 경로와 같다.
+  //   apps/detector/src/store.ts
+  //   apps/web/src/lib/supabase/channels.ts
+  const level = record.sensitivityLevel;
+  const hasLevel =
+    typeof level === "number" &&
+    Number.isFinite(level) &&
+    level >= SENSITIVITY_LEVEL_MIN &&
+    level <= SENSITIVITY_LEVEL_MAX;
+
+  if (!hasLevel) {
+    if (typeof record.scale === "string" && isScaleTimeframe(record.scale)) {
+      record.sensitivityLevel = levelForScale(record.scale);
+    } else if (
       typeof record.sensitivity === "number" &&
       Number.isFinite(record.sensitivity)
-        ? percentileToScale(record.sensitivity)
-        : DEFAULT_SCALE;
+    ) {
+      record.sensitivityLevel = levelForScale(
+        percentileToScale(record.sensitivity),
+      );
+    } else {
+      record.sensitivityLevel = DEFAULT_SENSITIVITY_LEVEL;
+    }
+  } else {
+    record.sensitivityLevel = Math.round(level);
   }
 
   return record as unknown as Channel;

@@ -10,14 +10,20 @@ import {
   SENSITIVITY_DEFAULT,
   SENSITIVITY_MAX,
   SENSITIVITY_MIN,
+  SCALE_RATE_CURVES,
   SENSITIVITY_SCALES,
   TIMEFRAMES,
 } from "./constants.js";
 import {
+  DEFAULT_SENSITIVITY_LEVEL,
   SCALE_MAX,
   SCALE_MIN,
+  SENSITIVITY_LEVEL_MAX,
+  SENSITIVITY_LEVEL_MIN,
   SLIDER_MAX,
   SLIDER_MIN,
+  levelForScale,
+  sensitivityAt,
   estimateAlertsPerDay,
   describeAlertRate,
   isScaleTimeframe,
@@ -281,5 +287,182 @@ describe("percentileToScale", () => {
     assert.equal(percentileToScale(99.536), "15m");
     assert.equal(percentileToScale(97.8454), "5m");
     assert.equal(percentileToScale(95), "1m");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 연속 민감도 축 (1~100)
+// ---------------------------------------------------------------------------
+
+describe("sensitivityAt", () => {
+  it("구간 오른쪽 끝이 실측 앵커를 정확히 재현한다", () => {
+    // 앵커는 측정으로 얻은 유일한 자리다. 여기가 어긋나면 슬라이더 전체가
+    // 근거를 잃는다. 20/40/60/80/100이 그 자리다.
+    for (const scale of SENSITIVITY_SCALES) {
+      const setting = sensitivityAt(levelForScale(scale.timeframe));
+      assert.equal(setting.timeframe, scale.timeframe);
+      assert.equal(setting.ratio, scale.ratio);
+    }
+  });
+
+  it("빈도가 슬라이더를 따라 단조 증가한다", () => {
+    // 오른쪽으로 밀었는데 알림이 줄면 슬라이더가 거짓말을 하는 것이다.
+    // 구간 경계에서 봉이 바뀌므로 여기가 특히 깨지기 쉽다.
+    let previous = -Infinity;
+    for (
+      let level = SENSITIVITY_LEVEL_MIN;
+      level <= SENSITIVITY_LEVEL_MAX;
+      level += 1
+    ) {
+      const { alertsPerDay } = sensitivityAt(level);
+      assert.ok(
+        alertsPerDay >= previous - 1e-9,
+        `level ${level}에서 빈도가 뒤로 갔다: ${previous} → ${alertsPerDay}`,
+      );
+      previous = alertsPerDay;
+    }
+  });
+
+  it("한 구간 안에서 배수가 단조 감소한다", () => {
+    // 같은 봉 안에서는 오른쪽으로 갈수록 문턱이 낮아져야 한다.
+    let previousRatio = Infinity;
+    let previousFrame = "";
+
+    for (
+      let level = SENSITIVITY_LEVEL_MIN;
+      level <= SENSITIVITY_LEVEL_MAX;
+      level += 1
+    ) {
+      const { ratio, timeframe } = sensitivityAt(level);
+      if (timeframe === previousFrame) {
+        assert.ok(
+          ratio <= previousRatio + 1e-9,
+          `level ${level}(${timeframe})에서 배수가 올라갔다`,
+        );
+      }
+      previousRatio = ratio;
+      previousFrame = timeframe;
+    }
+  });
+
+  it("배수가 측정 구간 안에 머문다", () => {
+    // 곡선은 배수 3.0 아래를 담지 않는다(교차 캐시 하한). 그 밖으로
+    // 나가면 화면의 빈도가 측정되지 않은 추정치가 된다.
+    for (
+      let level = SENSITIVITY_LEVEL_MIN;
+      level <= SENSITIVITY_LEVEL_MAX;
+      level += 1
+    ) {
+      const { ratio, timeframe } = sensitivityAt(level);
+      const curve = SCALE_RATE_CURVES[timeframe];
+      assert.ok(curve !== undefined && curve.length > 0);
+
+      const lowest = curve[0]?.[0] ?? 0;
+      const highest = curve[curve.length - 1]?.[0] ?? 0;
+      assert.ok(
+        ratio >= lowest - 1e-9 && ratio <= highest + 1e-9,
+        `level ${level}의 배수 ${ratio}가 ${timeframe} 측정 구간(${lowest}~${highest}) 밖이다`,
+      );
+    }
+  });
+
+  it("구간마다 봉이 하나씩, 조용한 쪽에서 잦은 쪽 순이다", () => {
+    const order = SENSITIVITY_SCALES.map((scale) => scale.timeframe);
+    const seen: string[] = [];
+
+    for (
+      let level = SENSITIVITY_LEVEL_MIN;
+      level <= SENSITIVITY_LEVEL_MAX;
+      level += 1
+    ) {
+      const { timeframe } = sensitivityAt(level);
+      if (seen[seen.length - 1] !== timeframe) {
+        seen.push(timeframe);
+      }
+    }
+
+    assert.deepEqual(seen, order);
+  });
+
+  it("범위 밖은 양 끝으로 잘린다", () => {
+    assert.equal(sensitivityAt(-10).level, SENSITIVITY_LEVEL_MIN);
+    assert.equal(sensitivityAt(9999).level, SENSITIVITY_LEVEL_MAX);
+    assert.equal(
+      sensitivityAt(0).timeframe,
+      sensitivityAt(SENSITIVITY_LEVEL_MIN).timeframe,
+    );
+  });
+
+  it("기본값이 사용자 라벨로 검증된 15분봉 자리다", () => {
+    const setting = sensitivityAt(DEFAULT_SENSITIVITY_LEVEL);
+    assert.equal(setting.timeframe, DEFAULT_SCALE);
+    assert.equal(setting.ratio, scaleRatio(DEFAULT_SCALE));
+  });
+});
+
+describe("levelForScale", () => {
+  it("봉 → 위치 → 봉이 그대로 돌아온다", () => {
+    for (const scale of SENSITIVITY_SCALES) {
+      assert.equal(
+        sensitivityAt(levelForScale(scale.timeframe)).timeframe,
+        scale.timeframe,
+      );
+    }
+  });
+
+  it("마이그레이션 0004가 쓰는 앵커와 같다", () => {
+    // supabase/migrations/0004_channel_sensitivity_level.sql이 이 값을
+    // 하드코딩한다. 한쪽만 고치면 저장된 설정의 뜻이 조용히 바뀐다.
+    assert.equal(levelForScale("4h"), 20);
+    assert.equal(levelForScale("1h"), 40);
+    assert.equal(levelForScale("15m"), 60);
+    assert.equal(levelForScale("5m"), 80);
+    assert.equal(levelForScale("1m"), 100);
+  });
+
+  it("슬라이더에 없는 봉은 기본 위치로 간다", () => {
+    assert.equal(levelForScale("1d"), DEFAULT_SENSITIVITY_LEVEL);
+  });
+});
+
+describe("SCALE_RATE_CURVES", () => {
+  it("슬라이더에 서는 다섯 봉을 모두 덮는다", () => {
+    for (const scale of SENSITIVITY_SCALES) {
+      const curve = SCALE_RATE_CURVES[scale.timeframe];
+      assert.ok(
+        curve !== undefined && curve.length > 0,
+        `${scale.timeframe} 곡선이 없다`,
+      );
+    }
+  });
+
+  it("배수가 오름차순이고 빈도가 내림차순이다", () => {
+    // 역으로 읽는 코드(ratioForRate)가 이 단조성을 전제한다.
+    for (const scale of SENSITIVITY_SCALES) {
+      const curve = SCALE_RATE_CURVES[scale.timeframe] ?? [];
+      for (let i = 1; i < curve.length; i += 1) {
+        const left = curve[i - 1];
+        const right = curve[i];
+        assert.ok(left !== undefined && right !== undefined);
+        assert.ok(right[0] > left[0], `${scale.timeframe} 배수가 뒤집혔다`);
+        assert.ok(right[1] <= left[1], `${scale.timeframe} 빈도가 뒤집혔다`);
+      }
+    }
+  });
+
+  it("앵커 배수에서 표의 실측 빈도가 나온다", () => {
+    // 곡선과 SENSITIVITY_SCALES는 같은 백테스트에서 나온 값이다.
+    // 서로 어긋나면 둘 중 하나가 낡은 것이다. 표는 반올림되어 있으므로
+    // 10% 안쪽이면 같은 측정으로 본다.
+    for (const scale of SENSITIVITY_SCALES) {
+      const measured = sensitivityAt(
+        levelForScale(scale.timeframe),
+      ).alertsPerDay;
+      const gap = Math.abs(measured - scale.alertsPerDay) / scale.alertsPerDay;
+      assert.ok(
+        gap < 0.1,
+        `${scale.timeframe}: 표 ${scale.alertsPerDay}, 곡선 ${measured.toFixed(2)}`,
+      );
+    }
   });
 });

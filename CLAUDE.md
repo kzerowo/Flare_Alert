@@ -2,13 +2,15 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-_Last updated: 2026-08-03 18:20_
+_Last updated: 2026-08-03 20:47_
 
 ## Project Overview
 
 **Flare Alert** is an adaptive volume-spike alert service for cryptocurrency traders. Users create **channels**; each channel watches one coin at one sensitivity level. A channel fires when trailing turnover reaches N× the median of recent comparable windows — a ratio, not a percentile, because that is the number a user can verify against a chart.
 
-**The sensitivity slider sets the bar length, not the ratio.** See § Scale-Driven Sensitivity. A timeframe is never an evaluation axis chosen by the algorithm — it is what the user picks, and the ratio follows from it. `docs/algorithm.md` predates the ratio rewrite entirely and describes a percentile pipeline that no longer exists — do not treat it as current.
+**The market is Binance USD-M perpetual futures, not spot.** This is load-bearing, not a detail — see § Futures, Not Spot. Every measured constant in this repo is futures-derived; spot numbers are not comparable and none survive.
+
+**The sensitivity slider is a continuous 1–100 axis that sets alert frequency.** See § Continuous Sensitivity. The bar length snaps to one of five values (the aggregator only computes six fixed frames per symbol); the ratio moves continuously within each band. A timeframe is never an evaluation axis chosen by the algorithm — it follows from where the user put the slider. `docs/algorithm.md` predates the ratio rewrite entirely and describes a percentile pipeline that no longer exists — do not treat it as current.
 
 **Percentiles never made alert frequency predictable.** Evaluation runs every second, so "top 5% of seconds" is not "5% of events" — a single event crosses the threshold for hundreds of consecutive seconds. This is why the percentile axis was abandoned.
 
@@ -69,8 +71,11 @@ All actively traded on Binance USDT. Coin icons live in `apps/web/public/coins/`
 ├── apps/
 │   ├── backtest/          # Offline replay harness (not deployed)
 │   │   ├── scripts/
-│   │   │   ├── fetch-klines.mjs  # Download Binance public dumps (monthly)
-│   │   │   ├── prepare.mjs       # CSV → compact binary
+│   │   │   ├── fetch-futures.mjs   # Download futures daily aggTrades (CURRENT)
+│   │   │   ├── prepare-futures.mjs # aggTrades → 1s buckets → compact binary (CURRENT)
+│   │   │   ├── label-bars.mjs      # Expand any timeframe's bars for user labelling
+│   │   │   ├── fetch-klines.mjs  # DEAD: spot 1s dumps
+│   │   │   ├── prepare.mjs       # DEAD: spot 1s CSV → compact binary
 │   │   │   ├── label-window.mjs  # Expand a user-labeled hour minute-by-minute (REST)
 │   │   │   ├── minute-rate.mjs   # Alerts/day at the 1m scale over N days (REST)
 │   │   │   └── lib/zip.mjs       # Minimal ZIP reader (no deps)
@@ -145,10 +150,15 @@ All actively traded on Binance USDT. Coin icons live in `apps/web/public/coins/`
 ├── supabase/migrations/
 │   ├── 0001_init.sql            # profiles / channels / channel_symbols + RLS
 │   ├── 0002_alerts_and_push.sql # push_subscriptions / alerts tables + RLS, drops Telegram
-│   └── 0003_channel_scale.sql   # channels.sensitivity (percentile) → channels.scale (bar length)
+│   ├── 0003_channel_scale.sql   # channels.sensitivity (percentile) → channels.scale (bar length)
+│   └── 0004_channel_sensitivity_level.sql  # channels.scale → channels.sensitivity_level (1~100)
 ├── apps/detector/deploy/        # systemd unit + setup.sh for Oracle Cloud deployment
 ├── docs/                        # Korean planning docs (algorithm/architecture/research/decisions/deploy)
-├── data/                        # Backtest data — gitignored, ~1.2GB
+├── data/                        # Backtest data — gitignored, ~3.4GB
+│   ├── futures-aggtrades/       # Raw daily aggTrades zips (3.2GB)
+│   ├── prepared/                # Per-second binaries + manifest (182MB)
+│   ├── crossings/               # Extraction cache — DELETE when data source changes
+│   └── labels/                  # User chart labels (keep; hand-made, not regenerable)
 └── apps/web/vercel.json         # Vercel build config: monorepo build (core first, then web)
 ```
 
@@ -158,9 +168,13 @@ Five tables: profiles, channels, channel_symbols, push_subscriptions, alerts; RL
 
 **`channel_symbols` is a separate table, not an array column on `channels`.** The detector's per-second question is "which channels watch BTCUSDT" — a reverse lookup an array/jsonb column can't index. The child table carries an `(exchange, symbol)` index for exactly this path.
 
-**`channels.scale` stores the bar length (`'15m'`), which is what detection actually uses.** The old `sensitivity` column held a percentile that was converted percentile → slider → ratio at runtime, so retuning any axis silently reinterpreted every stored setting. `0003` migrates it and leaves `sensitivity` nullable rather than dropping it — during a rolling deploy the old code's `insert` would fail against a missing column. Delete it in a later migration once nothing reads it.
+**`channels.sensitivity_level` (int 1–100) is the single stored sensitivity value.** Both detection inputs — window length and ratio — derive from it via `sensitivityAt()`. Storing the window separately would let the two drift, and a drifted pair makes the "alerts/day" on screen a lie.
 
-Three read paths must stay in agreement on the fallback `scale` → `percentileToScale(sensitivity)` → `DEFAULT_SCALE`: `detector/store.ts`, `web/lib/supabase/channels.ts`, and `web/lib/channel-store.tsx` (guest sessionStorage, which can hold pre-migration shapes indefinitely).
+Three generations of this column now exist. `0003` moved percentile → `scale`; `0004` moves `scale` → `sensitivity_level`. Each migration leaves its predecessor in place (nullable) rather than dropping it, because during a rolling deploy old code still writes it. Delete them in a later migration once nothing reads them. The web write path still fills `scale` alongside `sensitivity_level` for the same reason.
+
+Three read paths must stay in agreement on the fallback chain `sensitivity_level` → `levelForScale(scale)` → `levelForScale(percentileToScale(sensitivity))` → `DEFAULT_SENSITIVITY_LEVEL`: `detector/store.ts`, `web/lib/supabase/channels.ts`, and `web/lib/channel-store.tsx` (guest sessionStorage, which can hold pre-migration shapes indefinitely).
+
+**The band anchors are hardcoded in `0004` and in `levelForScale()`.** A test pins them together; changing one side alone silently moves every stored user setting.
 
 **`push_subscriptions`**: one row per browser that opted in. Columns: `endpoint` (PK), `user_id`, `p256dh`, `auth` (base64url), `label` (e.g. "Chrome / Windows (localhost:3000)" — includes origin because browsers treat different ports as different sites, so subscribing from two ports/origins creates two rows and duplicate notifications), `created_at`, `last_success_at`. Dead subscriptions (404/410) are deleted on first failure.
 
@@ -219,20 +233,37 @@ A `Channel` = **one coin** + one sensitivity + delivery methods. Users have many
 
 ### Sensitivity Model
 
-**The slider sets the bar length. The ratio follows from it.** `SENSITIVITY_SCALES` in `constants.ts` is the whole axis — five measured rows, quiet → frequent:
+**The slider is 1–100 and sets alert frequency. Bar length snaps; the ratio moves continuously.**
 
-| Index | Bar | Ratio | Alerts/day |
+`SENSITIVITY_SCALES` in `constants.ts` holds the five measured **anchors**, which now sit at the right edge of each 20-wide band:
+
+**The rule is one number: 3.5×, with 1m as the sole exception.**
+
+| Level | Bar | Ratio | Alerts/day |
 |---|---|---|---|
-| 0 | 4h | 3.0× | 0.3 |
-| 1 | 1h | 3.4× | 1.0 |
-| 2 (default) | **15m** | **3.6×** | **4.2** |
-| 3 | 5m | 4.5× | 10 |
-| 4 | 1m | 8.4× | 30 |
+| 20 | 4h | 3.5× | 0.28 |
+| 40 | 1h | 3.5× | 1.2 |
+| **60 (default)** | **15m** | **3.5×** | **4.8** |
+| 80 | 5m | 3.5× | 14 |
+| 100 | 1m | 5.0× | 50 |
 
-- **Five discrete stops, not 1–100.** Every value in that table is measured; interpolating between them would put an unmeasured "alerts/day" on screen. The five rates (0.3 / 1 / 4.2 / 10 / 30) are far enough apart that one step is a real difference.
-- **`alertsPerDay` is data, not a formula.** Majors only (BTC/ETH/SOL); small caps run 2–3× higher.
-- Exports: `scaleAt()`, `scaleIndexOf()`, `scaleRatio()`, `scaleAlertsPerDay()`, `isScaleTimeframe()`, `percentileToScale()`, `SCALE_MIN`, `SCALE_MAX`.
-- The old percentile/ratio slider (`sliderToRatio`, `percentileToSlider`, `CHANNEL_RATE_CURVE`, `RATIO_DEFAULT`, `FRAME_SCALE_PERCENTILE`, `DETECTION_TIMEFRAME`) is `@deprecated` but still exported — the backtest's before/after comparison path and `percentileToScale()` need it.
+3.5× is the value that catches **100% of the user's own futures 5m labels** (14 marks over 2026-08-02~03). It is the only futures-validated number, so every other bar simply reuses it.
+
+That works because a constant ratio spreads the rates by ~4× per step on its own (0.28 → 1.19 → 4.84 → 14.06). There was never evidence for per-bar ratios; the measurement says they aren't needed. 1m is the exception only because 3.5× there yields 82/day, collapsing the spacing — 5.0× restores the ~3.5× step.
+
+**Dead: choosing target rates first and back-solving the ratio.** The old ladder (0.3/1/4.2/10/30) was round numbers with no backing, and it disagreed with the user's own labelled 5m rate (14/day). Ratio is now the evidence; rate is the consequence.
+
+Measured on **futures**, 3 majors, 2026-05-01~07-31 minus 30 warmup days = 62 measured days. Both earlier rows — spot (3.0/3.4/3.6/4.5/8.4) and the first futures pass (3.4/3.8/3.9/4.6/7.1) — are dead.
+
+Bands: `1–20 → 4h`, `21–40 → 1h`, `41–60 → 15m`, `61–80 → 5m`, `81–100 → 1m`.
+
+- **The anchor ratio is the floor for each bar, never a midpoint.** Within a band the ratio only rises above the anchor as you go quieter. Going *looser* than an anchor would leave the measured region (the crossing cache retains ratio ≥ 3 only), so the axis never does it.
+- **`alertsPerDay` is read from a measured curve, not a formula.** `SCALE_RATE_CURVES` holds a dense ratio → alerts/day sweep per bar, produced by `pnpm --filter @flare-alert/backtest start dense`. Log-log interpolated. Majors only (BTC/ETH/SOL); small caps run 2–3× higher.
+- **Rate is continuous and monotone across all 100 positions**, including at band boundaries where the bar switches — a band's left edge is defined by inverting *its own* curve at the previous anchor's curve-evaluated rate, not at the rounded table value. Pinning it to the rounded value made rate step *backwards* at 21/41/81. Tests cover this.
+- Exports: `sensitivityAt()`, `levelForScale()`, `SENSITIVITY_LEVEL_MIN`/`_MAX`, `DEFAULT_SENSITIVITY_LEVEL`, `SENSITIVITY_RATE_FLOOR`.
+- The five-stop API (`scaleAt`, `scaleIndexOf`, `scaleRatio`, `scaleAlertsPerDay`, `SCALE_MIN`/`SCALE_MAX`) still exists and still backs `levelForScale`/migration. The older percentile/ratio slider (`sliderToRatio`, `percentileToSlider`, `CHANNEL_RATE_CURVE`, `RATIO_DEFAULT`, `FRAME_SCALE_PERCENTILE`, `DETECTION_TIMEFRAME`) remains `@deprecated` — the backtest's comparison path and `percentileToScale()` need it.
+
+**Why the bar can't also be continuous**: `aggregator.ts` builds exactly the six `TIMEFRAMES` per symbol and `decide()` selects its slice by exact timeframe match. That per-symbol sharing is the "expensive part computed once" split (decisions.md 10). Arbitrary window lengths would need per-channel windows and baselines. This was a deliberate product call (2026-08-03), not an oversight.
 
 **`percentileToScale()` is the migration bridge** and must stay in lockstep with `supabase/migrations/0003_channel_scale.sql`, which hardcodes the same four percentile boundaries (99.9785 / 99.9002 / 99.5360 / 97.8454). A test pins them together; changing one side alone silently moves every stored user setting.
 
@@ -266,8 +297,11 @@ Realtime (tab open) and Web Push (tab closed) are complementary, not duplicative
 
 | Constant | Value | Note |
 |---|---|---|
-| `SENSITIVITY_SCALES` | 5 rows | The sensitivity axis. Bar → ratio → measured alerts/day; see § Sensitivity Model |
-| `DEFAULT_SCALE` | `15m` | Index 2. 3.6×, ~4.2 alerts/day on majors — the point the user's own chart labels landed on |
+| `SENSITIVITY_SCALES` | 5 rows | Measured anchors, one per bar. Now the right edge of each slider band; see § Sensitivity Model |
+| `SCALE_RATE_CURVES` | 5 curves | Dense ratio → alerts/day sweep per bar. What the slider reads to show a frequency |
+| `DEFAULT_SENSITIVITY_LEVEL` | `60` | 15m, 3.6×, ~4.2 alerts/day on majors — the point the user's own chart labels landed on |
+| `SENSITIVITY_RATE_FLOOR` | 0.15 | Quiet end of the slider. Below this `describeAlertRate` reads "거의 없음", which looks broken |
+| `DEFAULT_SCALE` | `15m` | Still used by `percentileToScale` fallbacks |
 | `SCALE_TIMEFRAMES` | 5 frames | `1d` deliberately absent; see § The 1d scale does not exist |
 | `EVENT_GAP_SECONDS` | 300 | Silence below threshold that ends an event |
 | `LOOKBACK_WINDOW_COUNT[tf]` | 60/48/32/24/18/14 | Windows the median baseline is drawn from, per frame |
@@ -285,7 +319,7 @@ cp .env.example .env
 pnpm dev:web                # builds core, then next dev on :3000
 pnpm dev:detector           # builds core, then runs detector (live Binance)
 
-pnpm test                   # 95 tests (84 core + 11 detector)
+pnpm test                   # 108 tests (97 core + 11 detector)
 pnpm typecheck              # all 4 workspaces
 pnpm build                  # topological build
 pnpm clean
@@ -311,11 +345,17 @@ This was a production issue: `start` was `node dist/index.js` with no `--env-fil
 ### Backtesting
 
 ```bash
-pnpm --filter @flare-alert/backtest fetch         # ~670MB of Binance dumps
-pnpm --filter @flare-alert/backtest prepare:data  # → 360MB binary
+# Futures aggTrades (current). Complete months only — see § Futures, Not Spot.
+node scripts/fetch-futures.mjs --symbols BTCUSDT,ETHUSDT,SOLUSDT --from 2026-05-01 --to 2026-07-31
+node --max-old-space-size=4096 scripts/prepare-futures.mjs   # → data/prepared, 182MB
+
 pnpm --filter @flare-alert/backtest build
 pnpm --filter @flare-alert/backtest start         # extract + sweep
 ```
+
+`fetch-klines.mjs` / `prepare.mjs` are the **spot 1s-kline** path and are dead — kept only as reference for the binary format.
+
+**Deleting `data/crossings/` is mandatory whenever the underlying data changes** (market, symbols, or date range). `MAGIC` only guards the cache *format*, so a data-source change is silently reused otherwise — which would quietly reproduce spot-era numbers.
 
 Crossing extraction takes ~1 minute/symbol, cached to `data/crossings/`. Subsequent runs sweep parameters in seconds. Bump `MAGIC` in `crossings.ts` if the cache format changes (currently `FLARE-CROSSINGS-4`).
 
@@ -357,7 +397,7 @@ See `docs/decisions.md` (Korean) for full rationale.
 ## Environment Variables
 
 - `DETECTOR_SYMBOLS` — detector only; comma-separated (`BTCUSDT,ETHUSDT`). Defaults to BTC/ETH/SOL. Stands in for standalone mode; each symbol costs ~29 REST requests and ~3s at boot.
-- `BINANCE_WS_URL` — defaults to `wss://stream.binance.com:9443/ws`
+- `BINANCE_WS_URL` — defaults to `wss://fstream.binance.com/ws` (**USD-M futures**, not spot)
 - `PORT` — health-check HTTP port (default 8080)
 - `LOG_LEVEL` — `debug` | `info` | `warn` | `error`
 - `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` — detector; generate via `pnpm --filter @flare-alert/detector keys`
@@ -372,7 +412,7 @@ Next.js reads `apps/web/.env.local`, not the root `.env`. There is no Binance AP
 
 ## Testing
 
-`packages/core`: 84 tests (`node:test`) — math primitives, baseline/score edge cases, percentile accuracy vs. exact sorted ranks, day-based sample eviction, cooldown behavior, slider↔percentile round-trips, scale markers, alert-rate description thresholds, and the scale axis (monotone rate/ratio, `1d` excluded, index↔bar round-trip, and the percentile→scale boundaries pinned against migration 0003).
+`packages/core`: 97 tests (`node:test`) — math primitives, baseline/score edge cases, percentile accuracy vs. exact sorted ranks, day-based sample eviction, cooldown behavior, slider↔percentile round-trips, scale markers, alert-rate description thresholds, the five-stop scale axis (monotone rate/ratio, `1d` excluded, index↔bar round-trip, percentile→scale boundaries pinned against migration 0003), and the continuous 1–100 axis (anchors reproduced exactly at 20/40/60/80/100, rate monotone across all 100 positions **including band boundaries**, ratio monotone within a band, ratio stays inside the measured curve range, band anchors pinned against migration 0004, and curve↔table agreement).
 
 `apps/detector`: 11 tests — window alignment to absolute epoch boundaries, elapsed-time gating, velocity computation, late/early trade buffer, and (most importantly) that minute-granularity backfill and second-granularity live stepping produce identical windows — this is what lets cold-start priming share the live code path.
 
@@ -581,13 +621,80 @@ Open (next):
 - Quiet-hour label to settle median-vs-MA baseline (§ above). This is the only thing still unresolved in the sensitivity design.
 - `alertsPerDay` is majors-only. Small caps run 2–3× higher and the UI does not say so.
 
+## Futures, Not Spot (switched 2026-08-04)
+
+**The detector watches Binance USD-M perpetual futures.** Spot was wrong and produced a year of uninterpretable measurements.
+
+### How it was found
+
+The user labeled two full days of 5-minute BTC charts (2026-08-02 and 08-03, 11:00–23:00 KST, 14 marked bars). Scored against **spot** data, no baseline could reproduce those marks — catching all 14 required descending to rank 63 of 144 bars (≈128 alerts/day, 11% precision). Every candidate failed: median 48/24/20/16/12/10/6 and mean at the same lookbacks.
+
+The decisive counterexample was **2026-08-03 16:05**: on spot it was the day's largest bar (24.5M, 9.98× — rank 1 under *every* baseline), and the user had not marked it. On futures the same bar is 32.2M but **rank 42, ratio 1.29×** — utterly ordinary. The user was right and the data was wrong.
+
+Switching data source alone, with the *existing* baseline (median-48), put all 14 labels inside the top 18 (≈36/day). 3.5× better, no algorithm change.
+
+**A trap this created**: an earlier pass over the same labels concluded that a moving average beat the median and that this reversed decisions.md #1. That conclusion was an artifact of the wrong market — on futures, **median-48 is the best performer** and decisions.md #1 stands. Do not re-derive baseline conclusions from spot data.
+
+### What changed
+
+- `binance.ts`: REST `fapi.binance.com/fapi/v1`, `exchangeInfo` filtered to `contractType: PERPETUAL` (excludes quarterlies).
+- `config.ts` / `.env` / `.env.example`: `wss://fstream.binance.com/ws`.
+- `label-window.mjs`, `label-bars.mjs`, `minute-rate.mjs`: futures REST.
+- aggTrade message shape is identical across both markets (`e/s/p/q/T`), so parsing is untouched.
+
+### Backtest data: aggTrades, not 1s klines
+
+**Futures has no 1-second kline dumps.** The finest kline is 1m — 60× too coarse for a rule evaluated every second. The replacement is **daily aggTrades**, which is *higher* resolution than the spot 1s klines it replaces (per-trade), and is the same data the live detector consumes.
+
+Daily files average ~7MB/symbol; monthly files are ~668MB, so daily is both cheaper and resumable. 3 majors × 92 days ≈ 3.2GB raw → 182MB prepared.
+
+`prepare-futures.mjs` buckets trades into per-second bins, emitting the **same binary format** as the old `prepare.mjs`, so `data.ts` and `replay.ts` are unchanged. It **refuses incomplete months** — a half-filled month leaves the remaining days at zero volume, which drags the median baseline down and silently inflates every ratio.
+
+Parsing was validated against Binance's own 5m klines: totals matched to the **exact unit**, and the 7 bars (of 288) that differed were pure boundary assignment, compensating with their neighbours to a net of exactly 0.00.
+
+### Open after the futures switch
+
+1. ✅ **Resolved 2026-08-04** — the 5m anchor was stricter than the user's labels (64% recall at 4.6×). Fixed by dropping every anchor to the label-validated 3.5×, which restores **100% recall** and, as a bonus, replaced the unfounded target-rate ladder with a single rule. See § Sensitivity Model.
+
+2. **`rejectedTurnover` is ~26% of frame-evaluations live, and it cannot be real.** Futures BTC never approaches `MIN_QUOTE_VOLUME` (50,000) — the smallest 1-minute window measured is 213,774, and futures crossing extraction reported **0 turnover cuts across 5.6M crossings**. Something else is incrementing that counter. Spot showed 0.5%.
+
+3. **`evaluate()` runs once per channel, not once per symbol** ([service.ts:402-408](apps/detector/src/service.ts#L402-L408)). Five channels on BTCUSDT recompute all six frames five times per second (~30 frame-evals/sec observed). This contradicts decisions.md #10 ("compute the expensive part once per symbol") and also multiplies percentile-estimator samples. Wasteful rather than wrong for ratio-based firing, but it should be hoisted per symbol.
+
+4. **All pre-2026-08-04 quality measurements are spot-derived** — alert quality/lift, hour-of-day confound, turnover floor buckets, label-fit recall/precision. Their *methods* stand; their *numbers* do not. Re-run before citing.
+
+## Continuous Sensitivity (implemented 2026-08-03)
+
+**The user rejected the five discrete stops as too coarse** — one step from 4.2 to 10 alerts/day is a 2.4× jump with nowhere to land in between. They asked for free choice across 1–100.
+
+The decision taken: **ratio continuous, bar length snapped.** Making the bar continuous too would require per-channel windows and baselines, breaking the per-symbol frame sharing that decisions.md 10 exists to protect. The ratio is what actually sets frequency, so opening it alone delivers what the user asked for at a fraction of the cost.
+
+### The old "must stay discrete" argument did not survive
+
+CLAUDE.md previously justified five stops with "every value is measured; interpolating would put an unmeasured alerts/day on screen." That is a real concern but not a blocker — and the codebase had already relaxed it once, in `estimateAlertsPerDay()`, which linearly interpolates a 20-point measured curve.
+
+The fix was to measure more densely rather than to interpolate a sparse table. `denseRatioCurve()` in the backtest sweeps 30 log-spaced ratios per bar and emits `SCALE_RATE_CURVES` verbatim. Every frequency shown on screen is now read from that measurement.
+
+Note also that "1–100 slider" is not a return to the abandoned percentile axis. That axis was dropped because *percentile* was the wrong threshold statistic, not because 1–100 was the wrong control. `sliderToRatio()` — a log-scaled 1–100 → ratio map — had been sitting `@deprecated` in `sensitivity.ts` the whole time.
+
+### Verified
+
+- All five anchors reproduce exactly at levels 20/40/60/80/100 (ratio identical; alerts/day within 1–4% of the rounded table).
+- Rate is monotone non-decreasing across all 100 positions. The first implementation was **not** — anchoring band edges to the table's rounded rates made the rate step backwards at levels 21/41/81. Band edges now invert against the curve's own value at the previous anchor.
+- Ratio never leaves the measured region (≥ 3.0, the crossing cache floor).
+- The default (level 60) still lands on the label-validated 15m/3.6× configuration.
+
+### Not yet done
+
+**Migration `0004` has not been applied to the live Supabase database.** Until it is, the web app and detector will query a `sensitivity_level` column that does not exist. This is the one deploy step this work left open.
+
 ## Known Gaps & Next Steps
 
 1. **Alert quality** — ✅ measured, hour-of-day confound controlled (2.08x corrected). Open: confirmation on 2–3 more symbols; hit-rate targets for a product callout.
 2. **`MIN_QUOTE_VOLUME`** — ✅ measurement infrastructure + two rounds of data (see § Turnover Floor). Open: the product decision on where/how to set the floor.
 3. **Detector pipeline** — ✅ complete end-to-end. Open: confirm alert rate with a multi-day real-time run; measure user retention/engagement.
 4. **Ratio vs. percentile** — ✅ ratio won; the detector runs on ratios.
-4b. **Scale-driven slider** — ✅ implemented (2026-08-03). Slider axis swapped from ratio to timeframe; `SENSITIVITY_SCALES` table, `Channel.scale` field, `scaleAt/scaleIndexOf/scaleRatio/scaleAlertsPerDay()` exports, migration SQL 0003_channel_scale. Open: quiet-hour label still needed to settle median-vs-MA baseline question.
+4b. **Scale-driven slider** — ✅ implemented (2026-08-03). Slider axis swapped from ratio to timeframe; `SENSITIVITY_SCALES` table, `scaleAt/scaleIndexOf/scaleRatio/scaleAlertsPerDay()` exports, migration SQL 0003_channel_scale. Open: quiet-hour label still needed to settle median-vs-MA baseline question.
+4c. **Continuous 1–100 slider** — ✅ implemented (2026-08-03). See § Continuous Sensitivity. `SCALE_RATE_CURVES` (dense measured curves), `sensitivityAt()`/`levelForScale()`, `Channel.sensitivityLevel`, migration 0004, `backtest start dense`. **Open: migration 0004 is not yet applied to the live database.**
 5. **Storage** — ✅ schema, auth, channel persistence, push subscriptions, alert logging, password reset. Open: alert retention policy (table grows unbounded).
 6. **Web UI** — ✅ MainApp, ChannelCard, ChannelForm, CoinIcon, AuthDialog + password reset, Web Push subscription, service worker, ko/en toggle, alert history view (all complete).
 7. **Deployment** — Vercel connected and building. `apps/detector/deploy/` (systemd unit + `setup.sh`) ready for Oracle Cloud; needs the user to provision a VM and run it. `NEXT_PUBLIC_VAPID_PUBLIC_KEY` still needs to be added to Vercel's env vars for push to work on the deployed site.

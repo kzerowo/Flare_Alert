@@ -1,8 +1,12 @@
 import {
-  DEFAULT_SCALE,
+  DEFAULT_SENSITIVITY_LEVEL,
+  SENSITIVITY_LEVEL_MAX,
+  SENSITIVITY_LEVEL_MIN,
   TIMEFRAMES,
   isScaleTimeframe,
+  levelForScale,
   percentileToScale,
+  sensitivityAt,
 } from "@flare-alert/core";
 import type {
   Channel,
@@ -53,19 +57,33 @@ function toExchange(value: string): Exchange {
 }
 
 /**
- * 채널이 판정에 쓸 봉 길이.
+ * 채널의 민감도 위치(1~100).
  *
- * scale 컬럼이 정본이다. 마이그레이션 0003 이전에 만들어진 행이 남아 있을
- * 수 있어서, 비어 있으면 옛 백분위에서 옮긴다.
+ * sensitivity_level이 정본이다. 그 앞의 두 세대가 남아 있을 수 있어서
+ * 차례로 물러난다 — 0004 이전 행(scale), 0003 이전 행(백분위).
+ *
+ * 이 순서는 detector·게스트 저장소와 같아야 한다. 한 곳만 어긋나면 같은
+ * 채널이 화면과 detector에서 다른 민감도로 동작한다.
+ *   apps/detector/src/store.ts
+ *   apps/web/src/lib/channel-store.tsx
  */
-function toScale(row: ChannelRow): Timeframe {
+function toSensitivityLevel(row: ChannelRow): number {
+  if (
+    row.sensitivity_level !== null &&
+    Number.isFinite(row.sensitivity_level)
+  ) {
+    const level = Math.round(row.sensitivity_level);
+    if (level >= SENSITIVITY_LEVEL_MIN && level <= SENSITIVITY_LEVEL_MAX) {
+      return level;
+    }
+  }
   if (row.scale !== null && isScaleTimeframe(row.scale)) {
-    return row.scale;
+    return levelForScale(row.scale);
   }
   if (row.sensitivity !== null && Number.isFinite(row.sensitivity)) {
-    return percentileToScale(row.sensitivity);
+    return levelForScale(percentileToScale(row.sensitivity));
   }
-  return DEFAULT_SCALE;
+  return DEFAULT_SENSITIVITY_LEVEL;
 }
 
 /**
@@ -85,7 +103,7 @@ function toChannel(row: ChannelRow, symbols: ChannelSymbolRow[]): Channel {
     id: row.id,
     name: row.name,
     enabled: row.enabled,
-    scale: toScale(row),
+    sensitivityLevel: toSensitivityLevel(row),
     timeframes: toTimeframes(row.timeframes),
     delivery: toDelivery(row.delivery),
     symbol:
@@ -208,7 +226,10 @@ export async function createChannelRow(
       user_id: userId,
       name: channel.name,
       enabled: channel.enabled,
-      scale: channel.scale,
+      sensitivity_level: channel.sensitivityLevel,
+      // 폐기 예정이지만 같이 채운다. 배포 중에는 scale만 읽는 옛 코드가
+      // 잠깐 같이 도는데, 비워 두면 그쪽에서 전부 기본값으로 보인다.
+      scale: sensitivityAt(channel.sensitivityLevel).timeframe,
       timeframes: channel.timeframes,
       delivery: channel.delivery,
     })
@@ -233,7 +254,10 @@ export async function updateChannelRow(
     .update({
       name: channel.name,
       enabled: channel.enabled,
-      scale: channel.scale,
+      sensitivity_level: channel.sensitivityLevel,
+      // 폐기 예정이지만 같이 채운다. 배포 중에는 scale만 읽는 옛 코드가
+      // 잠깐 같이 도는데, 비워 두면 그쪽에서 전부 기본값으로 보인다.
+      scale: sensitivityAt(channel.sensitivityLevel).timeframe,
       timeframes: channel.timeframes,
       delivery: channel.delivery,
     })

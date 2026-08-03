@@ -4,8 +4,10 @@ import {
   FRAME_RATE_CURVE_POSITIONS,
   RATIO_AT_SLIDER_MAX,
   RATIO_AT_SLIDER_MIN,
+  SCALE_RATE_CURVES,
   SENSITIVITY_MAX,
   SENSITIVITY_MIN,
+  SENSITIVITY_RATE_FLOOR,
   SENSITIVITY_SCALES,
 } from "./constants.js";
 import type { SensitivityScale } from "./constants.js";
@@ -39,6 +41,256 @@ export const SLIDER_MAX = 100;
 /** 스케일 슬라이더의 양 끝. 0이 가장 조용하고 커질수록 잦다. */
 export const SCALE_MIN = 0;
 export const SCALE_MAX = SENSITIVITY_SCALES.length - 1;
+
+// ---------------------------------------------------------------------------
+// 연속 민감도 축 (1~100)
+//
+// 다섯 칸은 너무 성겼다. 4.2회/일에서 10회/일로 한 칸에 2.4배가 뛰는데,
+// 그 사이를 원하는 사용자가 갈 곳이 없었다.
+//
+// 그래서 슬라이더를 1~100으로 열되, 봉 길이는 여전히 다섯 개 중 하나로
+// 붙인다. 집계기가 종목당 여섯 프레임만 계산하고 판정이 그 중 하나를
+// 정확히 찾아 쓰기 때문이다(decisions.md 10번의 "비싼 계산은 종목당 한 번").
+// 임의 길이 창을 허용하면 그 공유 구조가 깨진다.
+//
+// 대신 배수가 연속으로 움직인다. 알림 빈도를 실제로 정하는 것은 배수이므로,
+// 사용자가 보는 값(하루 몇 회)은 슬라이더 전 구간에서 연속이다.
+//
+// 구간은 20칸씩 다섯 개다.
+//
+//   1~20   4h    21~40  1h    41~60  15m    61~80  5m    81~100  1m
+//
+// 각 구간의 오른쪽 끝(20/40/60/80/100)이 SENSITIVITY_SCALES의 실측 앵커다.
+// 즉 옛 다섯 칸은 그대로 도달 가능한 자리로 남고, 나머지가 채워진 것이다.
+//
+// 구간 안에서 배수는 앵커 배수까지만 내려간다. 앵커 배수가 그 봉에서
+// 검증된 가장 느슨한 값이고, 그 아래는 측정 구간(배수 3.0 이상) 밖으로
+// 나가기 때문이다. 더 조용하게 가려면 배수를 올린다 — 늘 측정 안쪽이다.
+// ---------------------------------------------------------------------------
+
+/** 연속 민감도 슬라이더의 양 끝. 작을수록 조용하다. */
+export const SENSITIVITY_LEVEL_MIN = 1;
+export const SENSITIVITY_LEVEL_MAX = 100;
+
+/** 한 봉이 차지하는 슬라이더 칸 수. */
+const LEVELS_PER_BAND =
+  (SENSITIVITY_LEVEL_MAX - SENSITIVITY_LEVEL_MIN + 1) /
+  SENSITIVITY_SCALES.length;
+
+/**
+ * 기본 민감도. 15분봉 앵커 자리다.
+ *
+ * 사용자가 15분봉 차트에 직접 표시한 기준이 여기고, 라벨로 채점하면
+ * 재현율 64% · 정밀도 74%가 나온다. 연속 축으로 바뀌어도 기본값은
+ * 그 검증된 자리를 그대로 가리켜야 한다.
+ */
+export const DEFAULT_SENSITIVITY_LEVEL = 60;
+
+/** 슬라이더 한 자리가 뜻하는 설정 전부. */
+export interface SensitivitySetting {
+  /** 슬라이더 위치 (1~100) */
+  level: number;
+  /** 판정에 쓰는 창 길이. 규모 라벨의 최소값이기도 하다. */
+  timeframe: Timeframe;
+  /** 그 창의 거래대금이 직전 창들 중앙값의 몇 배면 알리는가 */
+  ratio: number;
+  /** 대형주 코인 1개당 하루 알림 수. 실측 곡선에서 읽는다. */
+  alertsPerDay: number;
+}
+
+/**
+ * 측정 곡선에서 배수 → 빈도를 읽는다. 로그-로그 보간이다.
+ *
+ * 양 축 모두 자릿수를 가로지른다(배수 3~23, 빈도 0.005~124). 선형으로
+ * 보간하면 왼쪽 끝이 통째로 뭉개진다.
+ */
+function rateAtRatio(timeframe: Timeframe, ratio: number): number {
+  const curve = SCALE_RATE_CURVES[timeframe];
+  if (curve === undefined || curve.length === 0) {
+    return 0;
+  }
+
+  const first = curve[0];
+  const last = curve[curve.length - 1];
+  if (first === undefined || last === undefined) {
+    return 0;
+  }
+
+  // 측정 구간 밖은 가장 가까운 끝값으로 둔다. 곡선을 연장해 추정하면
+  // 화면의 숫자가 측정 근거를 잃는다.
+  if (ratio <= first[0]) {
+    return first[1];
+  }
+  if (ratio >= last[0]) {
+    return last[1];
+  }
+
+  for (let i = 1; i < curve.length; i += 1) {
+    const right = curve[i];
+    const left = curve[i - 1];
+    if (right === undefined || left === undefined) {
+      break;
+    }
+    if (ratio > right[0]) {
+      continue;
+    }
+
+    // 빈도 0은 로그를 못 취한다. 그 구간은 선형으로 잇는다.
+    if (left[1] <= 0 || right[1] <= 0) {
+      const span = right[0] - left[0];
+      const weight = span === 0 ? 0 : (ratio - left[0]) / span;
+      return left[1] + (right[1] - left[1]) * weight;
+    }
+
+    const t =
+      Math.log(ratio / left[0]) / Math.log(right[0] / left[0]);
+    return Math.exp(
+      Math.log(left[1]) + t * (Math.log(right[1]) - Math.log(left[1])),
+    );
+  }
+
+  return last[1];
+}
+
+/** 곡선을 거꾸로 읽는다. 목표 빈도를 내는 배수를 찾는다. */
+function ratioForRate(timeframe: Timeframe, perDay: number): number {
+  const curve = SCALE_RATE_CURVES[timeframe];
+  if (curve === undefined || curve.length === 0) {
+    return SENSITIVITY_SCALES[0]?.ratio ?? 3;
+  }
+
+  const first = curve[0];
+  const last = curve[curve.length - 1];
+  if (first === undefined || last === undefined) {
+    return 3;
+  }
+
+  // 곡선은 빈도가 내림차순이다(배수가 커질수록 조용해진다).
+  if (perDay >= first[1]) {
+    return first[0];
+  }
+  if (perDay <= last[1]) {
+    return last[0];
+  }
+
+  for (let i = 1; i < curve.length; i += 1) {
+    const right = curve[i];
+    const left = curve[i - 1];
+    if (right === undefined || left === undefined) {
+      break;
+    }
+    if (perDay < right[1]) {
+      continue;
+    }
+
+    if (left[1] <= 0 || right[1] <= 0) {
+      const span = right[1] - left[1];
+      const weight = span === 0 ? 0 : (perDay - left[1]) / span;
+      return left[0] + (right[0] - left[0]) * weight;
+    }
+
+    const t =
+      Math.log(perDay / left[1]) / Math.log(right[1] / left[1]);
+    return Math.exp(
+      Math.log(left[0]) + t * (Math.log(right[0]) - Math.log(left[0])),
+    );
+  }
+
+  return last[0];
+}
+
+/**
+ * 구간의 왼쪽 끝(가장 조용한 자리)에서 쓸 배수.
+ *
+ * 그 봉으로 "바로 앞 앵커의 빈도"를 내는 배수다. 이렇게 잡아야 구간을
+ * 넘을 때 봉이 바뀌어도 빈도가 이어진다 — 사용자가 보는 값은 빈도이므로
+ * 거기가 끊기면 안 된다. 배수는 그 자리에서 뛰지만 내부 값이다.
+ *
+ * 가장 조용한 구간(4h)에는 앞 앵커가 없어서 SENSITIVITY_RATE_FLOOR를 쓴다.
+ */
+function bandQuietRatio(bandIndex: number): number {
+  const scale = SENSITIVITY_SCALES[bandIndex];
+  if (scale === undefined) {
+    return 3;
+  }
+
+  const previous = SENSITIVITY_SCALES[bandIndex - 1];
+
+  // 앞 앵커의 빈도는 표에 적힌 반올림값이 아니라 곡선에서 읽은 값을 쓴다.
+  // 표의 1.0과 곡선의 1.04처럼 조금만 어긋나도 구간 경계에서 빈도가
+  // 뒤로 밀린다 — 슬라이더를 오른쪽으로 밀었는데 알림이 줄어 보인다.
+  const target =
+    previous === undefined
+      ? SENSITIVITY_RATE_FLOOR
+      : rateAtRatio(previous.timeframe, previous.ratio);
+
+  const exact = ratioForRate(scale.timeframe, target);
+
+  // 소수 둘째 자리에서 "내림"한다. 반올림하면 배수가 커질 수 있고, 배수가
+  // 커지면 빈도가 앞 구간 끝보다 낮아져 슬라이더를 오른쪽으로 밀었는데
+  // 알림이 줄어드는 자리가 생긴다. 내림은 늘 빈도를 같거나 높게 만든다.
+  //
+  // 자리수를 맞춰 두는 이유는 sensitivityAt이 최종 배수를 둘째 자리로
+  // 반올림하기 때문이다. 여기서 미리 맞춰 두면 구간 시작점(t=0)에서
+  // 그 반올림이 값을 건드리지 않는다.
+  return Math.floor(exact * 100) / 100;
+}
+
+/** 슬라이더 위치 → 그 자리의 봉·배수·예상 빈도. */
+export function sensitivityAt(level: number): SensitivitySetting {
+  const clamped = Math.round(
+    clamp(level, SENSITIVITY_LEVEL_MIN, SENSITIVITY_LEVEL_MAX),
+  );
+
+  const bandIndex = clamp(
+    Math.floor((clamped - SENSITIVITY_LEVEL_MIN) / LEVELS_PER_BAND),
+    0,
+    SENSITIVITY_SCALES.length - 1,
+  );
+
+  const scale = SENSITIVITY_SCALES[bandIndex];
+  if (scale === undefined) {
+    throw new Error("민감도 스케일 표가 비어 있습니다");
+  }
+
+  const bandStart = SENSITIVITY_LEVEL_MIN + bandIndex * LEVELS_PER_BAND;
+  // 구간의 마지막 칸에서 t = 1이 되어 앵커 배수와 정확히 맞아야 한다.
+  const t = (clamped - bandStart) / (LEVELS_PER_BAND - 1);
+
+  const quiet = bandQuietRatio(bandIndex);
+  const loud = scale.ratio;
+
+  // 로그 보간이다. 3배와 4배의 차이는 크고 16배와 17배는 거의 같다.
+  const ratio =
+    quiet <= 0 || loud <= 0
+      ? loud
+      : quiet * (loud / quiet) ** clamp(t, 0, 1);
+
+  const rounded = Math.round(ratio * 100) / 100;
+
+  return {
+    level: clamped,
+    timeframe: scale.timeframe,
+    ratio: rounded,
+    alertsPerDay: rateAtRatio(scale.timeframe, rounded),
+  };
+}
+
+/**
+ * 봉 길이 → 그 봉의 앵커 위치.
+ *
+ * 옛 다섯 칸 설정(channels.scale)을 연속 축으로 옮기는 경로다. 앵커는
+ * 구간의 오른쪽 끝이므로 실측값이 그대로 재현된다.
+ */
+export function levelForScale(timeframe: Timeframe): number {
+  const index = SENSITIVITY_SCALES.findIndex(
+    (scale) => scale.timeframe === timeframe,
+  );
+  if (index < 0) {
+    return DEFAULT_SENSITIVITY_LEVEL;
+  }
+  return SENSITIVITY_LEVEL_MIN + (index + 1) * LEVELS_PER_BAND - 1;
+}
 
 /** 위치(0~4) → 그 자리의 봉 길이·배수·예상 빈도. */
 export function scaleAt(position: number): SensitivityScale {

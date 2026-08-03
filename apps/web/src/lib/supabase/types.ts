@@ -21,7 +21,9 @@ export type ChannelRow = {
   user_id: string;
   name: string;
   enabled: boolean;
-  /** 판정에 쓰는 봉 길이. 0003 이전 행은 null일 수 있다. */
+  /** 민감도 슬라이더 위치 1~100. 0004 이전 행은 null일 수 있다. */
+  sensitivity_level: number | null;
+  /** @deprecated 다섯 칸이던 시절의 봉 길이. 0004에서 null 허용으로 바뀌었다. */
   scale: string | null;
   /** @deprecated 옛 백분위. 0003에서 null 허용으로 바뀌었다. */
   sensitivity: number | null;
@@ -72,15 +74,22 @@ export type AlertRow = {
 /**
  * id와 시각은 서버가 채운다.
  *
- * sensitivity는 0003에서 폐기 예정이 되어 넘기지 않는다. scale은 기본값이
- * 있으므로 생략할 수 있다.
+ * scale과 sensitivity는 폐기 예정이라 넘기지 않는다. 둘 다 0004 이후로는
+ * null을 허용하므로 생략해도 insert가 통과한다. sensitivity_level도 기본값
+ * (60)이 있어 생략할 수 있다.
  */
 type ChannelInsert = Omit<
   ChannelRow,
-  "id" | "created_at" | "updated_at" | "scale" | "sensitivity"
+  | "id"
+  | "created_at"
+  | "updated_at"
+  | "sensitivity_level"
+  | "scale"
+  | "sensitivity"
 > & {
   id?: string;
-  scale?: string;
+  sensitivity_level?: number;
+  scale?: string | null;
   sensitivity?: number | null;
 };
 type ChannelUpdate = Partial<Omit<ChannelRow, "id" | "user_id">>;

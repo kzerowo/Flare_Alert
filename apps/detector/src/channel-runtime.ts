@@ -20,9 +20,15 @@
 import {
   TIMEFRAME_MINUTES,
   TIMEFRAMES,
-  scaleRatio,
+  sensitivityAt,
 } from "@flare-alert/core";
-import type { Alert, Channel, SymbolRef, Timeframe } from "@flare-alert/core";
+import type {
+  Alert,
+  Channel,
+  SensitivitySetting,
+  SymbolRef,
+  Timeframe,
+} from "@flare-alert/core";
 
 import type { FrameSignal } from "./detect.js";
 
@@ -45,14 +51,26 @@ function nextAlertId(): string {
 }
 
 /**
- * 채널 설정에서 판정 배수를 뽑는다.
+ * 채널의 민감도 설정. 창 길이와 배수가 함께 나온다.
  *
- * 채널이 고른 것은 봉 길이 하나뿐이고 배수는 거기 딸려 온다. 봉마다 배수를
- * 따로 두는 이유는 짧은 봉이 원래 더 심하게 튀기 때문이다 — 4배로 고정하면
- * 1분봉은 하루 87회, 15분봉은 3.5회가 된다.
+ * 채널이 저장하는 것은 1~100 위치 하나뿐이다. 그 위치가 어느 구간에
+ * 속하는지가 창 길이를 정하고, 구간 안의 자리가 배수를 정한다.
+ *
+ * 봉마다 배수 범위를 따로 두는 이유는 짧은 봉이 원래 더 심하게 튀기
+ * 때문이다 — 4배로 고정하면 1분봉은 하루 87회, 15분봉은 3.5회가 된다.
  */
+export function channelSetting(channel: Channel): SensitivitySetting {
+  return sensitivityAt(channel.sensitivityLevel);
+}
+
+/** 채널 판정에 쓰는 배수. */
 export function channelRatio(channel: Channel): number {
-  return scaleRatio(channel.scale);
+  return channelSetting(channel).ratio;
+}
+
+/** 채널이 판정에 쓰는 창 길이. */
+export function channelScale(channel: Channel): Timeframe {
+  return channelSetting(channel).timeframe;
 }
 
 /**
@@ -67,7 +85,7 @@ export function channelRatio(channel: Channel): number {
  * 실제와 어긋난다.
  */
 export function channelEventGapSeconds(channel: Channel): number {
-  return TIMEFRAME_MINUTES[channel.scale] * 60;
+  return TIMEFRAME_MINUTES[channelScale(channel)] * 60;
 }
 
 /** 설정 교체 시에도 넘겨야 하는 판정 상태. */
@@ -116,10 +134,11 @@ export class ChannelRuntime {
     atMs: number,
     price: number,
   ): ChannelDecision {
-    const threshold = channelRatio(this.channel);
+    const setting = channelSetting(this.channel);
+    const threshold = setting.ratio;
 
     const primary = signals.find(
-      (signal) => signal.timeframe === this.channel.scale,
+      (signal) => signal.timeframe === setting.timeframe,
     );
 
     // 사건 경계 판정은 이 초를 반영하기 "전"의 값으로 해야 한다.
@@ -161,7 +180,7 @@ export class ChannelRuntime {
         score: primary.score,
         quoteVolume: primary.quoteVolume,
         ratioToMedian: primary.ratioToMedian ?? 0,
-        scale: widestScale(signals, threshold, this.channel.scale),
+        scale: widestScale(signals, threshold, setting.timeframe),
       },
       merged: 0,
     };

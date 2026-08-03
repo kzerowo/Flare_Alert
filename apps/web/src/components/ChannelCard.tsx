@@ -1,6 +1,6 @@
 "use client";
 
-import { displaySymbol, scaleAt, scaleIndexOf } from "@flare-alert/core";
+import { displaySymbol, sensitivityAt } from "@flare-alert/core";
 import type { Channel } from "@flare-alert/core";
 
 import { useT } from "@/lib/i18n";
@@ -23,7 +23,7 @@ export function ChannelCard({
   onHistory,
 }: Props) {
   const t = useT();
-  const setting = scaleAt(scaleIndexOf(channel.scale));
+  const setting = sensitivityAt(channel.sensitivityLevel);
   // 채널당 종목이 하나라 곱할 것이 없다.
   const perDay = setting.alertsPerDay;
   const scale = setting.timeframe;

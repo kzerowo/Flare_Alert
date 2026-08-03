@@ -1,38 +1,42 @@
 "use client";
 
 import {
-  SCALE_MAX,
-  SCALE_MIN,
+  SENSITIVITY_LEVEL_MAX,
+  SENSITIVITY_LEVEL_MIN,
   SENSITIVITY_SCALES,
-  scaleAt,
-  scaleIndexOf,
+  levelForScale,
+  sensitivityAt,
 } from "@flare-alert/core";
-import type { Timeframe } from "@flare-alert/core";
 
 import { formatAlertsPerDay, useT } from "@/lib/i18n";
 import { Icon } from "./Icon";
 
 /**
- * 슬라이더가 정하는 것은 봉 길이다.
+ * 슬라이더는 1~100이고, 정하는 것은 알림 빈도다.
  *
  * 배수를 눈금으로 삼던 때가 있었다. 그때는 판정 창이 15분에 고정되어
  * 있어서 움직일 것이 배수밖에 없었는데, 그 고정이 바로 사용자가 기각한
  * 지점이다 — 유동성 판별 기준이 특정 봉이어서는 안 된다는 것.
  *
- * 이제 눈금은 봉 이름이고 배수는 그 자리에 딸려 오는 값이다. 배수를 아예
- * 숨기지는 않는다. 사용자가 차트를 보고 직접 확인할 수 있는 유일한
- * 숫자이기 때문에, 부차적으로 같이 보여 준다.
+ * 다음에는 눈금이 봉 이름 다섯 개였다. 그건 너무 성겼다 — 15분봉(하루
+ * 4.2회)에서 5분봉(하루 10회)으로 한 칸에 2.4배가 뛰어서, 그 사이를
+ * 원하는 사용자가 갈 자리가 없었다.
  *
- * 위치가 다섯 개뿐인 이유: 값이 전부 실측이다. 사이를 보간해서 100단계로
- * 만들면 화면에 적히는 "하루 몇 회"가 근거 없는 숫자가 된다. 그리고 다섯
- * 위치의 빈도가 0.3 / 1 / 4.2 / 10 / 30회로 충분히 벌어져 있어서, 한 칸이
- * 실제로 의미 있는 차이를 만든다.
+ * 지금은 100칸이다. 봉 길이는 여전히 다섯 개 중 하나로 붙지만(집계기가
+ * 종목당 여섯 프레임만 계산한다), 구간 안에서 배수가 연속으로 움직인다.
+ * 봉 이름은 눈금 자리에 남아 "여기쯤이면 이 봉급"을 알려 준다.
+ *
+ * 화면의 "하루 몇 회"는 지어낸 숫자가 아니다. 봉마다 배수를 촘촘히 훑어
+ * 실측한 곡선(SCALE_RATE_CURVES)에서 읽는다.
  */
-function toTrackPercent(index: number): number {
-  if (SCALE_MAX === SCALE_MIN) {
-    return 0;
-  }
-  return ((index - SCALE_MIN) / (SCALE_MAX - SCALE_MIN)) * 100;
+
+/** 슬라이더 위치를 트랙 위 백분율로. */
+function toTrackPercent(level: number): number {
+  return (
+    ((level - SENSITIVITY_LEVEL_MIN) /
+      (SENSITIVITY_LEVEL_MAX - SENSITIVITY_LEVEL_MIN)) *
+    100
+  );
 }
 
 /** 배수를 "3.6배" / "3.6x"로. 소수점은 필요할 때만 붙인다. */
@@ -43,15 +47,14 @@ function formatRatio(ratio: number, suffix: string): string {
 }
 
 interface Props {
-  /** 채널이 판정에 쓰는 봉 길이. 저장되는 값 그대로다. */
-  value: Timeframe;
-  onChange: (scale: Timeframe) => void;
+  /** 채널의 민감도 위치(1~100). 저장되는 값 그대로다. */
+  value: number;
+  onChange: (level: number) => void;
 }
 
 export function SensitivitySlider({ value, onChange }: Props) {
   const t = useT();
-  const index = scaleIndexOf(value);
-  const current = scaleAt(index);
+  const current = sensitivityAt(value);
 
   return (
     <section className="space-y-4">
@@ -65,15 +68,16 @@ export function SensitivitySlider({ value, onChange }: Props) {
       </div>
 
       <div className="px-2">
-        {/* 봉 눈금. 위치가 곧 값이라 간격이 고르다. */}
+        {/* 봉 눈금. 각 구간의 오른쪽 끝이 실측 앵커 자리다. */}
         <div className="relative h-8">
-          {SENSITIVITY_SCALES.map((scale, i) => {
-            const active = i <= index;
+          {SENSITIVITY_SCALES.map((scale) => {
+            const anchor = levelForScale(scale.timeframe);
+            const active = value >= anchor;
             return (
               <div
                 key={scale.timeframe}
                 className="absolute flex -translate-x-1/2 flex-col items-center"
-                style={{ left: `${toTrackPercent(i)}%` }}
+                style={{ left: `${toTrackPercent(anchor)}%` }}
               >
                 <span
                   className={`whitespace-nowrap font-mono text-[11px] ${
@@ -95,13 +99,11 @@ export function SensitivitySlider({ value, onChange }: Props) {
         <input
           id="sensitivity"
           type="range"
-          min={SCALE_MIN}
-          max={SCALE_MAX}
+          min={SENSITIVITY_LEVEL_MIN}
+          max={SENSITIVITY_LEVEL_MAX}
           step={1}
-          value={index}
-          onChange={(event) =>
-            onChange(scaleAt(Number(event.target.value)).timeframe)
-          }
+          value={value}
+          onChange={(event) => onChange(Number(event.target.value))}
           className="w-full"
         />
 
@@ -127,9 +129,7 @@ export function SensitivitySlider({ value, onChange }: Props) {
             )}
           </p>
           <p className="text-body-sm text-on-surface-variant">
-            {t.slider.ratePerCoin(
-              formatAlertsPerDay(t, current.alertsPerDay),
-            )}
+            {t.slider.ratePerCoin(formatAlertsPerDay(t, current.alertsPerDay))}
           </p>
         </div>
       </div>

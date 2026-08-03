@@ -20,6 +20,7 @@ import {
   sliderToPercentile,
   sliderToRatio,
 } from "@flare-alert/core";
+import type { Timeframe } from "@flare-alert/core";
 
 import { loadCrossings, saveCrossings } from "./crossings.js";
 import type { CrossingStream } from "./crossings.js";
@@ -920,6 +921,85 @@ async function labelFit(
  * 수백 회가 나오면 봉 길이마다 배수를 다르게 줘야 한다는 뜻이고, 그때는
  * 목표 빈도에서 배수를 역산한 아래쪽 표가 답이 된다.
  */
+/**
+ * 봉마다 "배수 → 하루 알림 수"를 촘촘히 잰다.
+ *
+ * SENSITIVITY_SCALES는 봉마다 딱 한 점씩, 다섯 점만 실측한 표다. 슬라이더가
+ * 다섯 칸으로 끊겨 있을 때는 그걸로 충분했지만, 1~100 연속 슬라이더는 두 점
+ * 사이의 모든 자리에도 숫자를 붙여야 한다. 그 자리를 지어내지 않으려면
+ * 곡선 자체를 재야 한다.
+ *
+ * 여기서 뽑은 점들이 core의 SCALE_RATE_CURVES가 된다. 로그-로그 보간으로
+ * 되읽으므로 점이 촘촘할수록 보간 오차가 준다.
+ *
+ * 캐시가 배수 3 미만을 담지 않는다(EXTRACT_MIN_RATIO). 3 아래를 훑으면
+ * 실제보다 조용하게 나오므로, 그 구간은 측정값이 아니라고 표시한다.
+ */
+function denseRatioCurve(streams: readonly CrossingStream[]): void {
+  const MAJORS = ["BTCUSDT", "ETHUSDT", "SOLUSDT"];
+  const majors = streams.filter((s) => MAJORS.includes(s.symbol));
+
+  const rateOf = (frame: number, ratio: number, gap: number): number => {
+    const perSymbol = majors.map(
+      (stream) =>
+        evaluate(stream, {
+          sensitivity: 0,
+          ratioThreshold: ratio,
+          eventGapSeconds: gap,
+          cooldownScale: 1,
+          tightening: TIGHTENING,
+          onlyFrame: frame,
+        }).alertsPerDay,
+    );
+    return perSymbol.reduce((s, v) => s + v, 0) / Math.max(perSymbol.length, 1);
+  };
+
+  console.log("");
+  console.log("═".repeat(78));
+  console.log("봉별 배수→빈도 곡선 (대형주 3종목 평균, 사건간격 = 봉 길이)");
+  console.log("연속 슬라이더가 이 곡선을 역으로 읽는다. ※ = 캐시 하한 아래라 신뢰 못 함");
+
+  // 슬라이더에 설 수 있는 다섯 봉만 본다. 1일봉은 어떤 배수에서도 0이다.
+  const SCALE_FRAMES: Timeframe[] = ["4h", "1h", "15m", "5m", "1m"];
+
+  for (const timeframe of SCALE_FRAMES) {
+    const frame = TIMEFRAMES.indexOf(timeframe);
+    if (frame < 0) {
+      continue;
+    }
+    const gap = TIMEFRAME_MINUTES[timeframe] * 60;
+
+    // 로그 간격으로 훑는다. 2배와 3배의 차이는 크고 20배와 21배는 거의 같다.
+    const points: { ratio: number; perDay: number }[] = [];
+    const STEPS = 30;
+    // 정확히 3.0에서 시작한다. 캐시가 배수 3 이상을 담으므로 임계 3.0은
+    // 담긴 교차를 전부 세어 올바르고, 그 아래만 실제보다 조용하게 나온다.
+    const LOW = EXTRACT_MIN_RATIO;
+    const HIGH = 40;
+    for (let i = 0; i < STEPS; i += 1) {
+      const t = i / (STEPS - 1);
+      const ratio = Math.round(LOW * (HIGH / LOW) ** t * 100) / 100;
+      points.push({ ratio, perDay: rateOf(frame, ratio, gap) });
+    }
+
+    console.log("");
+    console.log(`── ${timeframe} ──`);
+    for (const { ratio, perDay } of points) {
+      const flag = ratio < EXTRACT_MIN_RATIO ? " ※" : "";
+      console.log(
+        `  ${padStart(`${ratio.toFixed(2)}x`, 8)}  ${padStart(perDay.toFixed(3), 9)}/일${flag}`,
+      );
+    }
+
+    // core에 그대로 붙여넣을 수 있는 형태로도 낸다.
+    const literal = points
+      .filter((p) => p.ratio >= EXTRACT_MIN_RATIO)
+      .map((p) => `[${p.ratio}, ${p.perDay.toFixed(4)}]`)
+      .join(", ");
+    console.log(`  → "${timeframe}": [${literal}],`);
+  }
+}
+
 function scaleSweep(streams: readonly CrossingStream[]): void {
   // 추출 단계가 배수 3 미만을 담지 않았으므로 3부터 훑는다.
   const RATIOS = [3, 4, 5, 6, 8, 10, 15, 20, 30];
@@ -1110,6 +1190,9 @@ async function main(): Promise<void> {
   }
   if (stage === "all" || stage === "curve") {
     ratioCurve(streams);
+  }
+  if (stage === "all" || stage === "dense") {
+    denseRatioCurve(streams);
   }
   if (stage === "all" || stage === "label") {
     await labelFit(dataDir, streams, manifest);

@@ -8,9 +8,12 @@ import { createClient } from "@supabase/supabase-js";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import {
-  DEFAULT_SCALE,
+  DEFAULT_SENSITIVITY_LEVEL,
+  SENSITIVITY_LEVEL_MAX,
+  SENSITIVITY_LEVEL_MIN,
   TIMEFRAMES,
   isScaleTimeframe,
+  levelForScale,
   percentileToScale,
 } from "@flare-alert/core";
 import type {
@@ -40,6 +43,7 @@ interface ChannelRow {
   user_id: string;
   name: string;
   enabled: boolean;
+  sensitivity_level: number | null;
   scale: string | null;
   sensitivity: number | null;
   timeframes: string[] | null;
@@ -48,19 +52,33 @@ interface ChannelRow {
 }
 
 /**
- * 채널이 판정에 쓸 봉 길이.
+ * 채널의 민감도 위치(1~100).
  *
- * scale 컬럼이 정본이다. 마이그레이션 0003 이전에 만들어진 행이 남아 있을
- * 수 있어서, 비어 있으면 옛 백분위에서 옮긴다. 그것도 없으면 기본값이다.
+ * sensitivity_level이 정본이다. 그 앞의 두 세대가 남아 있을 수 있어서
+ * 차례로 물러난다 — 0003~0004 이전 행(scale), 0003 이전 행(백분위).
+ *
+ * 이 순서는 web의 세 읽기 경로와 같아야 한다. 한 곳만 어긋나면 같은
+ * 채널이 화면과 detector에서 다른 민감도로 동작한다.
+ *   apps/web/src/lib/supabase/channels.ts
+ *   apps/web/src/lib/channel-store.tsx (게스트 sessionStorage)
  */
-function toScale(row: ChannelRow): Timeframe {
+function toSensitivityLevel(row: ChannelRow): number {
+  if (
+    row.sensitivity_level !== null &&
+    Number.isFinite(row.sensitivity_level)
+  ) {
+    const level = Math.round(row.sensitivity_level);
+    if (level >= SENSITIVITY_LEVEL_MIN && level <= SENSITIVITY_LEVEL_MAX) {
+      return level;
+    }
+  }
   if (row.scale !== null && isScaleTimeframe(row.scale)) {
-    return row.scale;
+    return levelForScale(row.scale);
   }
   if (row.sensitivity !== null && Number.isFinite(row.sensitivity)) {
-    return percentileToScale(row.sensitivity);
+    return levelForScale(percentileToScale(row.sensitivity));
   }
-  return DEFAULT_SCALE;
+  return DEFAULT_SENSITIVITY_LEVEL;
 }
 
 function toExchange(value: string): Exchange {
@@ -106,7 +124,7 @@ export class Store {
     const { data, error } = await this.#client
       .from("channels")
       .select(
-        "id, user_id, name, enabled, scale, sensitivity, timeframes, delivery, channel_symbols(exchange, symbol)",
+        "id, user_id, name, enabled, sensitivity_level, scale, sensitivity, timeframes, delivery, channel_symbols(exchange, symbol)",
       )
       .eq("enabled", true);
 
@@ -138,7 +156,7 @@ export class Store {
             exchange: toExchange(first.exchange),
             symbol: first.symbol,
           },
-          scale: toScale(row),
+          sensitivityLevel: toSensitivityLevel(row),
           timeframes: toTimeframes(row.timeframes),
           delivery,
         },
