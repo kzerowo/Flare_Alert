@@ -96,10 +96,9 @@ export function loadConfig(): DetectorConfig {
   }
 
   return {
-    binanceWsUrl: optionalEnv(
-      "BINANCE_WS_URL",
-      "wss://stream.binance.com:9443/ws",
-    ),
+    // USD-M 선물 스트림이다. 현물(stream.binance.com)이 아니다 —
+    // 이유는 binance.ts 상단 주석 참고.
+    binanceWsUrl: optionalEnv("BINANCE_WS_URL", "wss://fstream.binance.com/ws"),
     symbols,
     supabase: loadSupabase(),
     vapid: loadVapid(),

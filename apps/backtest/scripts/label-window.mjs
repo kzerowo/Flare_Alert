@@ -22,7 +22,8 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const API = "https://api.binance.com/api/v3/klines";
+// USD-M 선물. 현물이 아니다 — 사용자가 보는 차트가 선물이다.
+const API = "https://fapi.binance.com/fapi/v1/klines";
 
 /** 직전 몇 분으로 중앙값 기준선을 만드는가. LOOKBACK_WINDOW_COUNT["1m"]와 맞춘다. */
 const MEDIAN_LOOKBACK = 60;

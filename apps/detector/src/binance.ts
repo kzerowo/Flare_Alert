@@ -6,8 +6,27 @@
 // 못 한다. 그래서 시작할 때 REST로 과거를 받아 채운다.
 //
 // API 키는 쓰지 않는다. 공개 시세 엔드포인트라 필요 없다.
+//
+// ---------------------------------------------------------------------------
+// 현물이 아니라 USD-M 선물(무기한)을 본다.
+//
+// 처음에는 현물이었다. 사용자가 2026-08-02~03 이틀치 5분봉 차트에 "이 정도면
+// 알림"을 직접 표시해 준 것으로 채점해 보니, 현물 데이터로는 그 표시를 어떤
+// 기준선·룩백 조합으로도 재현할 수 없었다 (라벨 전부를 잡으려면 하루 128회까지
+// 내려가야 했고 정밀도는 11%였다).
+//
+// 원인은 판정 로직이 아니라 시장이 달랐던 것이다. 결정적인 반례가 08-03 16:05
+// 봉이었다 — 현물에서는 거래대금 1위에 배수 9.98배로 압도적 1등인데 사용자는
+// 표시하지 않았다. 같은 봉이 선물에서는 거래대금 42위, 배수 1.29배로 평범했다.
+//
+// 데이터원만 선물로 바꾸자 같은 기준선(중앙값 48)에서 라벨이 전부 상위 18등
+// 안에 들어왔다 (하루 36회). 트레이더가 실제로 보는 차트가 선물이므로 당연한
+// 결과다. 현물과 선물은 같은 종목이라도 거래대금 분포가 다르다.
+//
+// aggTrade 메시지 형식은 두 시장이 같아서(e/s/p/q/T) 파싱은 그대로 쓴다.
+// ---------------------------------------------------------------------------
 
-const REST_BASE = "https://api.binance.com";
+const REST_BASE = "https://fapi.binance.com";
 
 /** 봉 하나. 우리가 쓰는 건 견적 통화 거래대금과 종가뿐이다. */
 export interface Kline {
@@ -65,7 +84,7 @@ export async function fetchMinuteKlines(
   let cursor = startMs;
 
   while (cursor < endMs) {
-    const url = new URL("/api/v3/klines", REST_BASE);
+    const url = new URL("/fapi/v1/klines", REST_BASE);
     url.searchParams.set("symbol", symbol);
     url.searchParams.set("interval", "1m");
     url.searchParams.set("startTime", String(cursor));
@@ -119,8 +138,10 @@ export async function fetchTradingSymbols(
   symbols: readonly string[],
 ): Promise<Set<string>> {
   const requested = new Set(symbols);
-  const url = new URL("/api/v3/exchangeInfo", REST_BASE);
-  url.searchParams.set("permissions", "SPOT");
+  // 선물 exchangeInfo는 permissions 파라미터를 받지 않는다. 대신 분기물이
+  // 섞여 오므로 contractType으로 무기한만 남긴다 (분기물은 BTCUSDT_250926
+  // 같은 이름이라 심볼 대조로도 걸러지지만, 명시해 두는 편이 안전하다).
+  const url = new URL("/fapi/v1/exchangeInfo", REST_BASE);
 
   const response = await fetch(url);
   if (!response.ok) {
@@ -143,10 +164,15 @@ export async function fetchTradingSymbols(
       if (typeof entry !== "object" || entry === null) {
         continue;
       }
-      const record = entry as { symbol?: unknown; status?: unknown };
+      const record = entry as {
+        symbol?: unknown;
+        status?: unknown;
+        contractType?: unknown;
+      };
       if (
         typeof record.symbol === "string" &&
         record.status === "TRADING" &&
+        record.contractType === "PERPETUAL" &&
         requested.has(record.symbol)
       ) {
         trading.add(record.symbol);

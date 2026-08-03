@@ -19,7 +19,8 @@
 //   node scripts/minute-rate.mjs --days 7
 //   node scripts/minute-rate.mjs --symbol ETHUSDT --days 14
 
-const API = "https://api.binance.com/api/v3/klines";
+// USD-M 선물. 현물이 아니다 — 사용자가 보는 차트가 선물이다.
+const API = "https://fapi.binance.com/fapi/v1/klines";
 
 const MEDIAN_LOOKBACK = 60;
 const MA_LOOKBACK = 20;
