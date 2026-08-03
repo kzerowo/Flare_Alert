@@ -139,14 +139,14 @@ export class DetectorService {
 
   async #loadChannels(): Promise<OwnedChannel[]> {
     if (this.#store === null) {
-      // 독립 모드. 설정된 종목마다 기본 민감도 채널을 하나씩 세운다.
+      // 독립 모드. 설정된 종목마다 기본 스케일 채널을 하나씩 세운다.
+      // createChannel()이 DEFAULT_SCALE을 넣어 준다.
       return this.#config.symbols.map((symbol) => ({
         userId: null,
         channel: {
           ...createChannel(),
           name: `${symbol} 기본`,
           symbol: { exchange: EXCHANGE, symbol },
-          sensitivity: SENSITIVITY_DEFAULT,
         },
       }));
     }

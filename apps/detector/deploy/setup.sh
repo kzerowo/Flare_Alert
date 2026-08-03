@@ -29,10 +29,10 @@ fi
 # Node
 #
 # 배포판이 주는 node는 대체로 너무 낡았다. detector는 전역 WebSocket과
-# --env-file을 쓰므로 20 이상이어야 하고, 22를 기준으로 잡는다.
+# --env-file-if-exists를 쓴다. 후자가 22.9부터라 22를 기준으로 잡는다.
 # ---------------------------------------------------------------------------
 log "Node.js 확인"
-if command -v node >/dev/null 2>&1 && [[ "$(node -p 'process.versions.node.split(".")[0]')" -ge 20 ]]; then
+if command -v node >/dev/null 2>&1 && [[ "$(node -p 'process.versions.node.split(".")[0]')" -ge 22 ]]; then
   echo "이미 설치됨: $(node --version)"
 else
   echo "NodeSource에서 Node ${NODE_MAJOR} 설치"

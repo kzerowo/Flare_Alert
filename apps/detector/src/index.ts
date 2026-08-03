@@ -8,7 +8,11 @@
 
 import { createServer } from "node:http";
 
-import { SENSITIVITY_DEFAULT, percentileToSlider } from "@flare-alert/core";
+import {
+  DEFAULT_SCALE,
+  scaleAlertsPerDay,
+  scaleRatio,
+} from "@flare-alert/core";
 
 import { DetectorService } from "./service.js";
 import type { LogLevel, Logger } from "./service.js";
@@ -38,7 +42,7 @@ async function main(): Promise<void> {
   log("info", "detector 시작");
   log(
     "info",
-    `기본 민감도: ${SENSITIVITY_DEFAULT} (슬라이더 ${percentileToSlider(SENSITIVITY_DEFAULT)})`,
+    `기본 스케일: ${DEFAULT_SCALE} (${scaleRatio(DEFAULT_SCALE)}배, 하루 ${scaleAlertsPerDay(DEFAULT_SCALE)}회)`,
   );
 
   if (config.supabase === null) {
@@ -52,6 +56,24 @@ async function main(): Promise<void> {
 
   if (config.vapid === null) {
     log("warn", "VAPID 키가 없습니다. 알림은 콘솔로만 나갑니다.");
+  }
+
+  /*
+   * 둘 다 없으면 사용자에게 알림이 갈 길이 아예 없다.
+   *
+   * 각각은 경고 한 줄이라 부팅 로그에 묻힌다. 실제로 그래서 "왜 알림이
+   * 안 오지"를 한참 뒤에야 알아챈 적이 있다. 환경변수를 못 읽고 있다는
+   * 것이 원인이었는데, 로그만 보면 정상 가동처럼 보였다.
+   *
+   * 이 조합은 개발 중 의도적으로 쓸 수 있으므로 죽이지는 않는다.
+   * 대신 착각할 수 없게 만든다.
+   */
+  if (config.supabase === null && config.vapid === null) {
+    log("warn", "─".repeat(64));
+    log("warn", "이 상태로는 사용자에게 알림이 가지 않습니다.");
+    log("warn", "감지는 돌지만 결과가 콘솔에만 찍힙니다.");
+    log("warn", ".env를 읽었는지 확인하세요 (pnpm --filter @flare-alert/detector start).");
+    log("warn", "─".repeat(64));
   }
 
   const service = new DetectorService(config, log);

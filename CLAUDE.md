@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-_Last updated: 2026-08-03 17:01_
+_Last updated: 2026-08-03 18:20_
 
 ## Project Overview
 
@@ -16,7 +16,7 @@ Distribution is via **native mobile apps** (App Store/Play Store) once the web a
 
 ## Tech Stack
 
-- **Monorepo**: pnpm workspaces (pnpm 11, Node ≥20)
+- **Monorepo**: pnpm workspaces (pnpm 11, Node ≥22.9 — `--env-file-if-exists` for environment loading)
 - **apps/web**: Next.js 15 (App Router) + React 19 + TypeScript + Tailwind CSS v4 → Vercel
 - **apps/detector**: Node.js (ES modules) + TypeScript → Oracle Cloud free tier (planned)
 - **apps/backtest**: Offline parameter-tuning tool, never deployed
@@ -302,7 +302,11 @@ pnpm --filter @flare-alert/detector keys     # generate a VAPID key pair
 curl localhost:8080/health   # warmup state + percentile sample counts per frame
 ```
 
-`/health` returns 503 until backfill finishes, then 200 with per-symbol warmup and sample counts. Neither command needs an API key or `.env` — Binance's public endpoints need no auth.
+`/health` returns 503 until backfill finishes, then 200 with per-symbol warmup and sample counts.
+
+**Detection works without any credentials — delivery does not.** Binance's public endpoints need no auth, so the detector boots and detects happily with an empty environment. But with no `SUPABASE_*` it runs in standalone mode (ignores every user channel, watches `DETECTOR_SYMBOLS` instead), and with no `VAPID_*` it prints alerts to the console instead of pushing them. Both states are survivable by design, and both mean **no user ever receives anything.**
+
+This was a production issue: `start` was `node dist/index.js` with no `--env-file`, so `pnpm start` silently ran fully unconfigured while `.env` sat right there populated. Every script that needs the environment now passes `--env-file-if-exists=../../.env` (Node ≥22.9; systemd supplies its own env via `EnvironmentFile=` and invokes `node` directly, so it is unaffected). Boot also prints an unmissable banner when both Supabase and VAPID are absent — this combination means alerts never reach users, and the warning prevents mistaking the normal-looking log for proper operation. If alerts are not arriving, read the first five lines of the boot log before anything else.
 
 ### Backtesting
 
