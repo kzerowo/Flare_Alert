@@ -2,13 +2,13 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-_Last updated: 2026-07-30 15:04_
+_Last updated: 2026-08-03 17:01_
 
 ## Project Overview
 
 **Flare Alert** is an adaptive volume-spike alert service for cryptocurrency traders. Users create **channels**; each channel watches one coin at one sensitivity level. A channel fires when trailing turnover reaches N× the median of recent comparable windows — a ratio, not a percentile, because that is the number a user can verify against a chart.
 
-**Read § Scale-Driven Sensitivity before touching detection.** The current code pins the window at 15m and moves only the ratio; the user has explicitly rejected that, and the replacement is measured but unimplemented. `docs/algorithm.md` predates the ratio rewrite entirely and describes a percentile pipeline that no longer exists — do not treat it as current.
+**The sensitivity slider sets the bar length, not the ratio.** See § Scale-Driven Sensitivity. A timeframe is never an evaluation axis chosen by the algorithm — it is what the user picks, and the ratio follows from it. `docs/algorithm.md` predates the ratio rewrite entirely and describes a percentile pipeline that no longer exists — do not treat it as current.
 
 **Percentiles never made alert frequency predictable.** Evaluation runs every second, so "top 5% of seconds" is not "5% of events" — a single event crosses the threshold for hundreds of consecutive seconds. This is why the percentile axis was abandoned.
 
@@ -144,7 +144,8 @@ All actively traded on Binance USDT. Coin icons live in `apps/web/public/coins/`
 │       └── sensitivity.test.ts
 ├── supabase/migrations/
 │   ├── 0001_init.sql            # profiles / channels / channel_symbols + RLS
-│   └── 0002_alerts_and_push.sql # push_subscriptions / alerts tables + RLS, drops Telegram
+│   ├── 0002_alerts_and_push.sql # push_subscriptions / alerts tables + RLS, drops Telegram
+│   └── 0003_channel_scale.sql   # channels.sensitivity (percentile) → channels.scale (bar length)
 ├── apps/detector/deploy/        # systemd unit + setup.sh for Oracle Cloud deployment
 ├── docs/                        # Korean planning docs (algorithm/architecture/research/decisions/deploy)
 ├── data/                        # Backtest data — gitignored, ~1.2GB
@@ -157,7 +158,9 @@ Five tables: profiles, channels, channel_symbols, push_subscriptions, alerts; RL
 
 **`channel_symbols` is a separate table, not an array column on `channels`.** The detector's per-second question is "which channels watch BTCUSDT" — a reverse lookup an array/jsonb column can't index. The child table carries an `(exchange, symbol)` index for exactly this path.
 
-**`sensitivity` stores the percentile, never the slider position** — the slider is a log-axis presentation; storing positions would silently change every user's setting if the axis is retuned.
+**`channels.scale` stores the bar length (`'15m'`), which is what detection actually uses.** The old `sensitivity` column held a percentile that was converted percentile → slider → ratio at runtime, so retuning any axis silently reinterpreted every stored setting. `0003` migrates it and leaves `sensitivity` nullable rather than dropping it — during a rolling deploy the old code's `insert` would fail against a missing column. Delete it in a later migration once nothing reads it.
+
+Three read paths must stay in agreement on the fallback `scale` → `percentileToScale(sensitivity)` → `DEFAULT_SCALE`: `detector/store.ts`, `web/lib/supabase/channels.ts`, and `web/lib/channel-store.tsx` (guest sessionStorage, which can hold pre-migration shapes indefinitely).
 
 **`push_subscriptions`**: one row per browser that opted in. Columns: `endpoint` (PK), `user_id`, `p256dh`, `auth` (base64url), `label` (e.g. "Chrome / Windows (localhost:3000)" — includes origin because browsers treat different ports as different sites, so subscribing from two ports/origins creates two rows and duplicate notifications), `created_at`, `last_success_at`. Dead subscriptions (404/410) are deleted on first failure.
 
@@ -180,15 +183,15 @@ See `docs/deploy.md` for Vercel + Supabase setup, and Oracle Cloud detector depl
 ```
 Binance aggTrade WS → 1-second buckets → Per-frame TRAILING windows
   → Median baseline (aligned completed windows) → ratio = velocity / median
-  → 15m frame only, ratio ≥ channel threshold → min-turnover + warmup filters
+  → the CHANNEL'S OWN frame, ratio ≥ that frame's ratio → min-turnover + warmup
   → Event-gap merge (one alert per event) → Web Push dispatch
 ```
 
 **Windows are trailing, not boundary-aligned partials.** The judged value is always "the last W seconds," so it is never extrapolated. The old design divided an aligned window's accumulated volume by elapsed minutes starting at `MIN_ELAPSED_SECONDS` — 10s for the 1m frame — which multiplied a 10-second sample by 6 and compared it against a distribution of completed windows. Measured on live alerts, that inflated the reported ratio ~4× at elapsed 10s (1.2× at 48s), so alerts fired where the chart showed nothing. `MIN_ELAPSED_SECONDS` is now unused by the detection path.
 
-**Only the 15m frame decides.** The other five are still computed, but only to label an alert's scale (the longest frame that also cleared the same ratio).
+**Each channel decides on its own frame** — `channel.scale`, set by the user's slider. All six frames are still computed per symbol (that work is channel-independent), and `decide()` picks its slice by the channel's scale. The remaining frames only label the alert's scale: the longest frame that also cleared the same ratio, floored at the channel's own frame.
 
-**The threshold is a ratio, not a percentile.** "Turnover over the last 15 minutes is ≥ N× the median of the previous 32 such windows." This is the number the user can verify against a chart. `channels.sensitivity` still stores a percentile; `channelRatio()` converts percentile → slider → ratio at runtime. **Transitional** — retuning the ratio axis silently changes stored settings, so the schema should eventually store the ratio directly.
+**The threshold is a ratio, not a percentile.** "Turnover over the last W is ≥ N× the median of the previous 32 such windows," where W is the channel's frame and N comes from `SENSITIVITY_SCALES`. This is the number the user can verify against a chart. `channels.scale` stores W directly — no runtime reinterpretation.
 
 Runs end-to-end: connects to Binance, primes from history, reads channels from Supabase, dispatches to subscribed browsers via Web Push, logs to DB, exposes `/health`.
 
@@ -216,17 +219,22 @@ A `Channel` = **one coin** + one sensitivity + delivery methods. Users have many
 
 ### Sensitivity Model
 
-**As implemented (current code):** the slider sets a **ratio** only; the window is always 15m.
+**The slider sets the bar length. The ratio follows from it.** `SENSITIVITY_SCALES` in `constants.ts` is the whole axis — five measured rows, quiet → frequent:
 
-- `RATIO_AT_SLIDER_MIN` 10 (slider 1, quiet) → `RATIO_AT_SLIDER_MAX` 1.5 (slider 100, frequent); logarithmic axis, since 1.5→2 matters and 9→10 does not.
-- `RATIO_DEFAULT` 4 sits at slider 49. Chosen from the user's own chart labels — see § Label-Based Measurement.
-- Slider tick marks are ratios (8/6/4/3/2), not frame names.
-- `estimateAlertsPerDay(sliderPosition)` interpolates `CHANNEL_RATE_CURVE`.
-- Exports: `sliderToRatio()`, `ratioToSlider()`, `sliderToPercentile()`, `percentileToSlider()`, `estimateAlertsPerDay()`, `SLIDER_MIN`, `SLIDER_MAX`
+| Index | Bar | Ratio | Alerts/day |
+|---|---|---|---|
+| 0 | 4h | 3.0× | 0.3 |
+| 1 | 1h | 3.4× | 1.0 |
+| 2 (default) | **15m** | **3.6×** | **4.2** |
+| 3 | 5m | 4.5× | 10 |
+| 4 | 1m | 8.4× | 30 |
 
-**As decided (2026-07-30, not yet implemented):** the slider must set the **window length**, not the ratio. See § Scale-Driven Sensitivity below — this is the next implementation task and it invalidates the three bullets above.
+- **Five discrete stops, not 1–100.** Every value in that table is measured; interpolating between them would put an unmeasured "alerts/day" on screen. The five rates (0.3 / 1 / 4.2 / 10 / 30) are far enough apart that one step is a real difference.
+- **`alertsPerDay` is data, not a formula.** Majors only (BTC/ETH/SOL); small caps run 2–3× higher.
+- Exports: `scaleAt()`, `scaleIndexOf()`, `scaleRatio()`, `scaleAlertsPerDay()`, `isScaleTimeframe()`, `percentileToScale()`, `SCALE_MIN`, `SCALE_MAX`.
+- The old percentile/ratio slider (`sliderToRatio`, `percentileToSlider`, `CHANNEL_RATE_CURVE`, `RATIO_DEFAULT`, `FRAME_SCALE_PERCENTILE`, `DETECTION_TIMEFRAME`) is `@deprecated` but still exported — the backtest's before/after comparison path and `percentileToScale()` need it.
 
-`FRAME_SCALE_PERCENTILE` still exists but no longer drives anything.
+**`percentileToScale()` is the migration bridge** and must stay in lockstep with `supabase/migrations/0003_channel_scale.sql`, which hardcodes the same four percentile boundaries (99.9785 / 99.9002 / 99.5360 / 97.8454). A test pins them together; changing one side alone silently moves every stored user setting.
 
 ### Delivery
 
@@ -243,7 +251,7 @@ Two tabs: **Channels** and **History**. Key behaviors:
 3. A `seenIds` Set dedupes when the initial query and Realtime subscription overlap.
 4. Unseen count increments per Realtime INSERT, resets when the alerts tab opens; shown as a badge.
 5. History can be scoped to one channel via each `ChannelCard`'s history button; channel names are then omitted from rows (all identical). Falls back to "all" if the channel is deleted.
-6. Each alert shows absolute time (HH:MM:SS, static) and relative time (updates every 60s).
+6. Each alert shows absolute date+time (YYYY-MM-DD HH:MM:SS, static) and relative time (updates every 60s). The date uses a fixed manual format, not `toLocaleDateString` — locale date formats vary too much in width for the numeric-font no-layout-shift goal.
 7. Price precision adapts to magnitude: ≥100 → 2 decimals, ≥1 → 4 decimals, <1 → 8 decimals.
 8. Deletion is optimistic — UI removes immediately, then sends DELETE; failure doesn't restore the row.
 9. Empty states differ for guest (accounts required), load failure, and genuinely-empty (full list vs. single channel).
@@ -258,15 +266,13 @@ Realtime (tab open) and Web Push (tab closed) are complementary, not duplicative
 
 | Constant | Value | Note |
 |---|---|---|
-| `DETECTION_TIMEFRAME` | `15m` | The only frame that fires alerts. **Superseded** — the slider must drive the window; see § Scale-Driven Sensitivity. The measurement behind this value was taken with the extrapolation bug live. |
-| `RATIO_DEFAULT` | 4 | Slider 49. ~4 alerts/day on majors. |
-| `SENSITIVITY_DEFAULT` | 99.8007 | The percentile that maps to slider 49 → 4×. Storage is still percentile-shaped; see § Detection Pipeline. |
-| `RATIO_AT_SLIDER_MIN` / `_MAX` | 10 / 1.5 | Slider ends, log axis |
+| `SENSITIVITY_SCALES` | 5 rows | The sensitivity axis. Bar → ratio → measured alerts/day; see § Sensitivity Model |
+| `DEFAULT_SCALE` | `15m` | Index 2. 3.6×, ~4.2 alerts/day on majors — the point the user's own chart labels landed on |
+| `SCALE_TIMEFRAMES` | 5 frames | `1d` deliberately absent; see § The 1d scale does not exist |
 | `EVENT_GAP_SECONDS` | 300 | Silence below threshold that ends an event |
-| `CHANNEL_RATE_CURVE` | 20 values | Alerts/day per slider step; 6 symbols, 2026-04-01 to 2026-06-30, remeasured under the ratio rule |
-| `LOOKBACK_WINDOW_COUNT["15m"]` | 32 | The 8 hours the median baseline is drawn from |
+| `LOOKBACK_WINDOW_COUNT[tf]` | 60/48/32/24/18/14 | Windows the median baseline is drawn from, per frame |
 
-Ratio ↔ rate on BTC (61 days): 3× → 7.1/day, **4× → 3.9/day**, 5× → 2.4/day, 6× → 1.5/day. Small caps run 2–3× higher at the same setting (ANKR 10/day, ONE 12/day at 4×) because their own label-event rate is 8–10/day.
+Deprecated but still exported (backtest comparison + migration only): `DETECTION_TIMEFRAME`, `RATIO_DEFAULT`, `RATIO_AT_SLIDER_MIN`/`_MAX`, `CHANNEL_RATE_CURVE`, `FRAME_SCALE_PERCENTILE`, `SENSITIVITY_DEFAULT`.
 
 Still `TODO(backtest)` in `constants.ts`: `LOOKBACK_WINDOW_COUNT`, `MIN_QUOTE_VOLUME`, `PERCENTILE_HISTORY_DAYS`, `MIN_PERCENTILE_SAMPLES`, `MAD_FLOOR_RATIO`. `MIN_ELAPSED_SECONDS` and the `COOLDOWN_*` constants are now dead for the detection path — kept only for the backtest's percentile comparison path.
 
@@ -279,7 +285,7 @@ cp .env.example .env
 pnpm dev:web                # builds core, then next dev on :3000
 pnpm dev:detector           # builds core, then runs detector (live Binance)
 
-pnpm test                   # 86 tests (75 core + 11 detector)
+pnpm test                   # 95 tests (84 core + 11 detector)
 pnpm typecheck              # all 4 workspaces
 pnpm build                  # topological build
 pnpm clean
@@ -362,7 +368,7 @@ Next.js reads `apps/web/.env.local`, not the root `.env`. There is no Binance AP
 
 ## Testing
 
-`packages/core`: 75 tests (`node:test`) — math primitives, baseline/score edge cases, percentile accuracy vs. exact sorted ranks, day-based sample eviction, cooldown behavior, slider↔percentile round-trips, scale markers, alert-rate description thresholds.
+`packages/core`: 84 tests (`node:test`) — math primitives, baseline/score edge cases, percentile accuracy vs. exact sorted ranks, day-based sample eviction, cooldown behavior, slider↔percentile round-trips, scale markers, alert-rate description thresholds, and the scale axis (monotone rate/ratio, `1d` excluded, index↔bar round-trip, and the percentile→scale boundaries pinned against migration 0003).
 
 `apps/detector`: 11 tests — window alignment to absolute epoch boundaries, elapsed-time gating, velocity computation, late/early trade buffer, and (most importantly) that minute-granularity backfill and second-granularity live stepping produce identical windows — this is what lets cold-start priming share the live code path.
 
@@ -485,7 +491,7 @@ The label-based measurement discovered that the user's actual criterion is ratio
 
 Expected outcome: if ratio mode outperforms percentile, the detector's core logic may pivot from percentile-based to ratio-based thresholds, with a simpler channel model (just "multiply by N" instead of "percentile slider").
 
-## Scale-Driven Sensitivity (decided 2026-07-30, NOT yet implemented)
+## Scale-Driven Sensitivity (implemented 2026-08-03)
 
 **The user rejected the fixed 15m detection window.** Their stated requirement, verbatim:
 
@@ -551,15 +557,25 @@ The user described marking against "the recent average volume," which is the cha
 
 **The decisive experiment is a label from a QUIET hour** — a weekend or dead session, which the user already planned as their second and third labeling passes. If the user marks bars there that median-60 misses (because everything is small in absolute terms) but MA-20 catches, the baseline must change. One active hour cannot separate them.
 
-### Implementation plan (next session)
+### Implementation (2026-08-03)
 
-Not started, deliberately — the baseline question above changes the numbers, and shipping half of this is worse than shipping none.
+✅ Completed:
 
-1. `packages/core`: replace `RATIO_DEFAULT` + `sliderToRatio()` with a scale axis. Slider → `(windowSeconds, ratio)` pair, interpolated along the five-point path above; drop `1d`.
-2. `packages/core`: derive the tick labels from the pair, so "15분봉급" is a definition rather than an empirical claim that can go stale.
-3. `apps/detector`: `channel-runtime.ts` reads the channel's window length instead of `DETECTION_TIMEFRAME`; `aggregator.ts` already emits every frame, so `decide()` picks its slice by the channel's scale.
-4. Schema: `channels.sensitivity` still stores a percentile that is converted twice at runtime. Migrate to storing the slider position or the `(window, ratio)` pair directly before this ships — the double conversion silently reinterprets stored settings whenever the axis moves.
-5. Re-run `start scale` and `start label` afterward; `CHANNEL_RATE_CURVE` is measured under the fixed-15m rule and will be wrong.
+1. `packages/core/constants.ts`: `SENSITIVITY_SCALES` table replaces `DETECTION_TIMEFRAME`. Slider → `SensitivityScale` (timeframe/ratio/alertsPerDay) pair; `1d` removed.
+2. `packages/core/sensitivity.ts`: `scaleAt()`, `scaleIndexOf()`, `scaleRatio()`, `scaleAlertsPerDay()`, `isScaleTimeframe()`, `percentileToScale()` (migration path), `SCALE_MIN`/`SCALE_MAX`.
+3. `apps/detector/src/channel-runtime.ts`: reads `channel.scale` instead of `DETECTION_TIMEFRAME`; `decide()` picks its slice by scale; `widestScale()` is floored at the channel's own frame.
+4. `packages/core/src/types.ts`: `Channel.scale: Timeframe` (new), `Channel.sensitivity` deprecated and optional.
+5. `supabase/migrations/0003_channel_scale.sql`: migrates `channels.sensitivity` → `channels.scale` using the same percentile-band → timeframe mapping as `percentileToScale()`.
+6. `SensitivitySlider.tsx`: five stops labelled by bar; the ratio is shown as supporting detail, not the control. `ChannelCard` and the `catchesFrom` strings follow.
+7. Three independent read paths all fall back `scale` → `percentileToScale(sensitivity)` → `DEFAULT_SCALE`, so pre-0003 rows and stale guest sessionStorage keep working: `detector/store.ts`, `web/lib/supabase/channels.ts`, `web/lib/channel-store.tsx` (`normalizeChannel`).
+
+8. **Event gap is now the channel's own bar length** (`channelEventGapSeconds`), not a flat 300s. A flat gap means different things per bar — 5 minutes of quiet does not end a 4h event, and 300s merges five separate 1m spikes. It also has to match how `alertsPerDay` was measured, or the number on screen is a lie.
+
+**Verified**: replaying all five rows against the 61-day majors cache with the shipped rule reproduces the table within ±3% (4h 0.30, 1h 1.03, 15m 4.13, 5m 10.14, 1m 29.87). The rates shown in the UI are what the detector actually does.
+
+Open (next):
+- Quiet-hour label to settle median-vs-MA baseline (§ above). This is the only thing still unresolved in the sensitivity design.
+- `alertsPerDay` is majors-only. Small caps run 2–3× higher and the UI does not say so.
 
 ## Known Gaps & Next Steps
 
@@ -567,7 +583,7 @@ Not started, deliberately — the baseline question above changes the numbers, a
 2. **`MIN_QUOTE_VOLUME`** — ✅ measurement infrastructure + two rounds of data (see § Turnover Floor). Open: the product decision on where/how to set the floor.
 3. **Detector pipeline** — ✅ complete end-to-end. Open: confirm alert rate with a multi-day real-time run; measure user retention/engagement.
 4. **Ratio vs. percentile** — ✅ ratio won; the detector runs on ratios.
-4b. **Scale-driven slider** — 🔄 **the active workstream.** Measured and decided (§ Scale-Driven Sensitivity); nothing implemented yet. Two things gate it: a quiet-hour label from the user to settle median-vs-MA baseline, and the schema migration off percentile storage.
+4b. **Scale-driven slider** — ✅ implemented (2026-08-03). Slider axis swapped from ratio to timeframe; `SENSITIVITY_SCALES` table, `Channel.scale` field, `scaleAt/scaleIndexOf/scaleRatio/scaleAlertsPerDay()` exports, migration SQL 0003_channel_scale. Open: quiet-hour label still needed to settle median-vs-MA baseline question.
 5. **Storage** — ✅ schema, auth, channel persistence, push subscriptions, alert logging, password reset. Open: alert retention policy (table grows unbounded).
 6. **Web UI** — ✅ MainApp, ChannelCard, ChannelForm, CoinIcon, AuthDialog + password reset, Web Push subscription, service worker, ko/en toggle, alert history view (all complete).
 7. **Deployment** — Vercel connected and building. `apps/detector/deploy/` (systemd unit + `setup.sh`) ready for Oracle Cloud; needs the user to provision a VM and run it. `NEXT_PUBLIC_VAPID_PUBLIC_KEY` still needs to be added to Vercel's env vars for push to work on the deployed site.

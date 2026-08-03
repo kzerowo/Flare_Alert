@@ -92,8 +92,8 @@ const ko = {
     sensitivity: "민감도",
     perDay: "예상 알림/하루",
     catches: "잡는 규모",
-    catchesLargest: "유동성이 가장 크게 튈 때만",
-    catchesFrom: (frame: string) => `${frame} 이상`,
+    catchesFrom: (frame: string, ratio: number) =>
+      `${frame} 거래대금이 평소의 ${ratio}배 이상`,
     delivery: "알림 방법",
     history: "알림 기록",
     edit: "편집",
@@ -138,12 +138,12 @@ const ko = {
     quiet: "조용히",
     frequent: "자주",
     summaryTitle: "이 설정이면",
-    /** 앞뒤로 나눠 가운데 배수만 굵게 쓴다. */
-    catchesRatioBefore: "최근 15분 거래대금이 평소의 ",
-    catchesRatioAfter: " 이상일 때 알림이 옵니다.",
+    /** 봉 이름이 주인공이고 배수는 그 자리에 딸려 오는 값이다. */
+    catchesScale: (scale: string, ratio: string) =>
+      `${scale} 급등을 잡습니다. 그 길이의 거래대금이 평소의 ${ratio} 이상이면 알림이 옵니다.`,
     ratePerCoin: (rate: string) => `${rate} 정도 울립니다`,
     footnote:
-      "알림은 유동성이 몰린 것을 알릴 뿐, 가격이 오를지 내릴지는 알려주지 않습니다. 평소는 직전 8시간의 15분 거래대금 중앙값이고, 차트에서 직접 확인할 수 있는 숫자입니다.",
+      "알림은 유동성이 몰린 것을 알릴 뿐, 가격이 오를지 내릴지는 알려주지 않습니다. 평소는 같은 길이의 직전 봉들의 중앙값이고, 차트에서 직접 확인할 수 있는 숫자입니다. 짧은 봉일수록 원래 크게 튀기 때문에 필요한 배수도 높습니다.",
   },
 
   rate: {
@@ -304,8 +304,8 @@ const en: Dictionary = {
     sensitivity: "Sensitivity",
     perDay: "Est. alerts/day",
     catches: "Catches",
-    catchesLargest: "Only the biggest liquidity surges",
-    catchesFrom: (frame: string) => `${frame} and larger`,
+    catchesFrom: (frame: string, ratio: number) =>
+      `${frame} turnover at ${ratio}x normal`,
     delivery: "Delivery",
     history: "History",
     edit: "Edit",
@@ -350,11 +350,11 @@ const en: Dictionary = {
     quiet: "Quiet",
     frequent: "Frequent",
     summaryTitle: "At this setting",
-    catchesRatioBefore: "Alerts when the last 15 minutes of turnover reaches ",
-    catchesRatioAfter: " of normal.",
+    catchesScale: (scale: string, ratio: string) =>
+      `Catches ${scale} spikes — alerts when that much turnover reaches ${ratio} of normal.`,
     ratePerCoin: (rate: string) => `Alerts about ${rate}`,
     footnote:
-      "An alert tells you liquidity gathered — not whether the price is about to rise or fall. \"Normal\" is the median 15-minute turnover over the past 8 hours, a number you can check on the chart yourself.",
+      "An alert tells you liquidity gathered — not whether the price is about to rise or fall. \"Normal\" is the median of the preceding bars of the same length, a number you can check on the chart yourself. Shorter bars swing more on their own, so they need a higher multiple.",
   },
 
   rate: {

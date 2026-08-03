@@ -1,12 +1,15 @@
 import {
   CHANNEL_RATE_CURVE,
+  DEFAULT_SCALE,
   FRAME_RATE_CURVE_POSITIONS,
   RATIO_AT_SLIDER_MAX,
   RATIO_AT_SLIDER_MIN,
   SENSITIVITY_MAX,
   SENSITIVITY_MIN,
+  SENSITIVITY_SCALES,
 } from "./constants.js";
-import type { Sensitivity } from "./types.js";
+import type { SensitivityScale } from "./constants.js";
+import type { Sensitivity, Timeframe } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // 슬라이더 위치와 백분위 임계의 변환
@@ -24,6 +27,71 @@ import type { Sensitivity } from "./types.js";
 
 export const SLIDER_MIN = 1;
 export const SLIDER_MAX = 100;
+
+// ---------------------------------------------------------------------------
+// 스케일 축 — 지금 쓰는 민감도 축
+//
+// 슬라이더가 정하는 것은 "어느 길이의 봉으로 보는가"다. 배수는 거기서
+// 따라 나온다. 아래 백분위·배수 변환은 옛 축이고, 저장된 값을 옮기는
+// 경로와 백테스트 비교에만 남아 있다.
+// ---------------------------------------------------------------------------
+
+/** 스케일 슬라이더의 양 끝. 0이 가장 조용하고 커질수록 잦다. */
+export const SCALE_MIN = 0;
+export const SCALE_MAX = SENSITIVITY_SCALES.length - 1;
+
+/** 위치(0~4) → 그 자리의 봉 길이·배수·예상 빈도. */
+export function scaleAt(position: number): SensitivityScale {
+  const index = Math.round(clamp(position, SCALE_MIN, SCALE_MAX));
+  // 상수 배열이 비어 있을 수 없지만 인덱스 접근은 타입상 undefined다.
+  const scale = SENSITIVITY_SCALES[index] ?? SENSITIVITY_SCALES[2];
+  if (scale === undefined) {
+    throw new Error("민감도 스케일 표가 비어 있습니다");
+  }
+  return scale;
+}
+
+/** 봉 길이 → 슬라이더 위치. 목록에 없으면 기본 위치. */
+export function scaleIndexOf(timeframe: Timeframe): number {
+  const index = SENSITIVITY_SCALES.findIndex(
+    (scale) => scale.timeframe === timeframe,
+  );
+  if (index >= 0) {
+    return index;
+  }
+  return scaleIndexOf(DEFAULT_SCALE);
+}
+
+/** 이 봉 길이에서 판정에 쓰는 배수. */
+export function scaleRatio(timeframe: Timeframe): number {
+  return scaleAt(scaleIndexOf(timeframe)).ratio;
+}
+
+/** 이 봉 길이에서 코인 1개당 하루 몇 번 울리는지. 대형주 실측값이다. */
+export function scaleAlertsPerDay(timeframe: Timeframe): number {
+  return scaleAt(scaleIndexOf(timeframe)).alertsPerDay;
+}
+
+/** 슬라이더에 올릴 수 있는 봉인가. 1일봉은 아니다. */
+export function isScaleTimeframe(value: string): value is Timeframe {
+  return SENSITIVITY_SCALES.some((scale) => scale.timeframe === value);
+}
+
+/**
+ * 옛 백분위 설정을 스케일로 옮긴다.
+ *
+ * 저장된 값은 백분위였고, 슬라이더 1~100 위에서 로그 축으로 해석됐다.
+ * 그 위치를 다섯 구간으로 나눠 봉에 대응시킨다. 사용자가 맞춰 둔 상대적
+ * 위치(조용한 쪽인지 잦은 쪽인지)는 그대로 유지된다.
+ *
+ * 마이그레이션 SQL(0003)이 같은 경계를 쓴다. 한쪽만 고치면 화면과 저장이
+ * 어긋나므로 함께 고쳐야 한다.
+ */
+export function percentileToScale(percentile: Sensitivity): Timeframe {
+  const position = percentileToSlider(percentile);
+  const band = Math.min(4, Math.floor((position - 1) / 20));
+  return scaleAt(band).timeframe;
+}
 
 /** 슬라이더 양 끝에 대응하는 꼬리 비율(%). 왼쪽이 조용하다. */
 const TAIL_AT_MIN = 100 - SENSITIVITY_MAX; // 0.01%

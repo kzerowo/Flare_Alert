@@ -67,6 +67,22 @@ function formatClock(firedAtMs: number, tag: string): string {
   });
 }
 
+/**
+ * 절대 날짜 (연-월-일).
+ *
+ * 언어별 서식(toLocaleDateString)을 쓰지 않고 직접 만든다. 시각과 달리
+ * 자릿수 서식 문화권 차이가 클(2026. 07. 30. vs 07/30/2026) 뿐만 아니라
+ * JetBrains Mono로 값이 바뀔 때 폭이 흔들리지 않게 하려는 목적과도
+ * 어긋난다. 고정 폭 숫자 표기가 그 목적에 맞는다.
+ */
+function formatDate(firedAtMs: number): string {
+  const d = new Date(firedAtMs);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 function formatVolume(value: number): string {
   if (value >= 1_000_000) {
     return `${(value / 1_000_000).toFixed(1)}M`;
@@ -117,7 +133,7 @@ function AlertItem({
             title={fired.toLocaleString(tag)}
           >
             <span className="font-mono">
-              {formatClock(alert.firedAtMs, tag)}
+              {formatDate(alert.firedAtMs)} {formatClock(alert.firedAtMs, tag)}
             </span>
             <span>{relativeTime(t, alert.firedAtMs, nowMs)}</span>
           </span>

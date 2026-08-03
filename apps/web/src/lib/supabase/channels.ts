@@ -1,4 +1,9 @@
-import { SENSITIVITY_DEFAULT, TIMEFRAMES } from "@flare-alert/core";
+import {
+  DEFAULT_SCALE,
+  TIMEFRAMES,
+  isScaleTimeframe,
+  percentileToScale,
+} from "@flare-alert/core";
 import type {
   Channel,
   DeliveryMethod,
@@ -48,6 +53,22 @@ function toExchange(value: string): Exchange {
 }
 
 /**
+ * 채널이 판정에 쓸 봉 길이.
+ *
+ * scale 컬럼이 정본이다. 마이그레이션 0003 이전에 만들어진 행이 남아 있을
+ * 수 있어서, 비어 있으면 옛 백분위에서 옮긴다.
+ */
+function toScale(row: ChannelRow): Timeframe {
+  if (row.scale !== null && isScaleTimeframe(row.scale)) {
+    return row.scale;
+  }
+  if (row.sensitivity !== null && Number.isFinite(row.sensitivity)) {
+    return percentileToScale(row.sensitivity);
+  }
+  return DEFAULT_SCALE;
+}
+
+/**
  * 채널당 종목은 하나다.
  *
  * 그런데도 channel_symbols를 별도 테이블로 남겨 둔다. detector가 매초
@@ -64,7 +85,7 @@ function toChannel(row: ChannelRow, symbols: ChannelSymbolRow[]): Channel {
     id: row.id,
     name: row.name,
     enabled: row.enabled,
-    sensitivity: row.sensitivity,
+    scale: toScale(row),
     timeframes: toTimeframes(row.timeframes),
     delivery: toDelivery(row.delivery),
     symbol:
@@ -187,7 +208,7 @@ export async function createChannelRow(
       user_id: userId,
       name: channel.name,
       enabled: channel.enabled,
-      sensitivity: channel.sensitivity ?? SENSITIVITY_DEFAULT,
+      scale: channel.scale,
       timeframes: channel.timeframes,
       delivery: channel.delivery,
     })
@@ -212,7 +233,7 @@ export async function updateChannelRow(
     .update({
       name: channel.name,
       enabled: channel.enabled,
-      sensitivity: channel.sensitivity,
+      scale: channel.scale,
       timeframes: channel.timeframes,
       delivery: channel.delivery,
     })

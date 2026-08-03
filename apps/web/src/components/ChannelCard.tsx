@@ -1,28 +1,11 @@
 "use client";
 
-import {
-  FRAME_SCALE_PERCENTILE,
-  TIMEFRAMES,
-  displaySymbol,
-  estimateAlertsPerDay,
-  percentileToSlider,
-} from "@flare-alert/core";
-import type { Channel, Timeframe } from "@flare-alert/core";
+import { displaySymbol, scaleAt, scaleIndexOf } from "@flare-alert/core";
+import type { Channel } from "@flare-alert/core";
 
 import { useT } from "@/lib/i18n";
 import { CoinIcon } from "./CoinIcon";
 import { Icon } from "./Icon";
-
-/** 이 민감도가 잡아내는 가장 작은 규모. 슬라이더와 같은 규칙이다. */
-function scaleOf(percentile: number): Timeframe | null {
-  const position = percentileToSlider(percentile);
-  for (const timeframe of TIMEFRAMES) {
-    if (percentileToSlider(FRAME_SCALE_PERCENTILE[timeframe]) <= position) {
-      return timeframe;
-    }
-  }
-  return null;
-}
 
 interface Props {
   channel: Channel;
@@ -40,10 +23,10 @@ export function ChannelCard({
   onHistory,
 }: Props) {
   const t = useT();
-  const position = percentileToSlider(channel.sensitivity);
+  const setting = scaleAt(scaleIndexOf(channel.scale));
   // 채널당 종목이 하나라 곱할 것이 없다.
-  const perDay = estimateAlertsPerDay(position);
-  const scale = scaleOf(channel.sensitivity);
+  const perDay = setting.alertsPerDay;
+  const scale = setting.timeframe;
 
   return (
     <li
@@ -84,7 +67,7 @@ export function ChannelCard({
                 {t.card.sensitivity}
               </p>
               <p className="font-mono text-headline text-primary">
-                {position}%
+                {t.frameScale[setting.timeframe]}
               </p>
             </div>
             <div className="text-right">
@@ -100,9 +83,7 @@ export function ChannelCard({
           <div>
             <p className="label mb-1 text-on-surface-variant">{t.card.catches}</p>
             <p className="text-body-sm">
-              {scale === null
-                ? t.card.catchesLargest
-                : t.card.catchesFrom(t.frameScale[scale])}
+              {t.card.catchesFrom(t.frameScale[scale], setting.ratio)}
             </p>
           </div>
 

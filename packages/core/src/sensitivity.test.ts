@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  DEFAULT_SCALE,
   FRAME_SCALE_PERCENTILE,
   RATIO_AT_SLIDER_MAX,
   RATIO_AT_SLIDER_MIN,
@@ -9,15 +10,24 @@ import {
   SENSITIVITY_DEFAULT,
   SENSITIVITY_MAX,
   SENSITIVITY_MIN,
+  SENSITIVITY_SCALES,
   TIMEFRAMES,
 } from "./constants.js";
 import {
+  SCALE_MAX,
+  SCALE_MIN,
   SLIDER_MAX,
   SLIDER_MIN,
   estimateAlertsPerDay,
   describeAlertRate,
+  isScaleTimeframe,
+  percentileToScale,
   percentileToSlider,
   ratioToSlider,
+  scaleAlertsPerDay,
+  scaleAt,
+  scaleIndexOf,
+  scaleRatio,
   sliderToPercentile,
   sliderToRatio,
 } from "./sensitivity.js";
@@ -198,5 +208,78 @@ describe("describeAlertRate", () => {
   it("10회를 넘으면 소수점을 버린다", () => {
     // 하루 23.4회라는 표기는 있지도 않은 정밀도를 주장한다.
     assert.deepEqual(describeAlertRate(23.4), { kind: "perDay", value: "23" });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 스케일 축 — 슬라이더가 봉 길이를 정한다
+// ---------------------------------------------------------------------------
+
+describe("스케일 축", () => {
+  it("왼쪽이 조용하고 오른쪽이 잦다", () => {
+    // 슬라이더의 방향이 뒤집히면 사용자가 조용히 두려다 30배 시끄러워진다.
+    for (let i = 1; i <= SCALE_MAX; i += 1) {
+      const previous = scaleAt(i - 1);
+      const current = scaleAt(i);
+      assert.ok(
+        current.alertsPerDay > previous.alertsPerDay,
+        `${previous.timeframe} → ${current.timeframe} 에서 빈도가 늘지 않았다`,
+      );
+    }
+  });
+
+  it("짧은 봉일수록 배수가 높다", () => {
+    // 짧은 봉이 원래 더 튀므로, 같은 배수를 주면 1분봉만 시끄러워진다.
+    for (let i = 1; i <= SCALE_MAX; i += 1) {
+      assert.ok(scaleAt(i).ratio >= scaleAt(i - 1).ratio);
+    }
+  });
+
+  it("1일봉은 슬라이더에 올라오지 않는다", () => {
+    // 하루치 거래대금은 평소의 3배가 되는 일이 없다. 눈금으로 두면
+    // 영영 울리지 않는 자리를 사용자에게 파는 셈이다.
+    assert.equal(isScaleTimeframe("1d"), false);
+    assert.ok(SENSITIVITY_SCALES.every((s) => s.timeframe !== "1d"));
+  });
+
+  it("위치와 봉 길이가 서로를 되돌린다", () => {
+    for (const scale of SENSITIVITY_SCALES) {
+      assert.equal(scaleAt(scaleIndexOf(scale.timeframe)).timeframe, scale.timeframe);
+      assert.equal(scaleRatio(scale.timeframe), scale.ratio);
+      assert.equal(scaleAlertsPerDay(scale.timeframe), scale.alertsPerDay);
+    }
+  });
+
+  it("범위를 벗어난 위치도 안전하다", () => {
+    assert.equal(scaleAt(-5).timeframe, scaleAt(SCALE_MIN).timeframe);
+    assert.equal(scaleAt(99).timeframe, scaleAt(SCALE_MAX).timeframe);
+  });
+
+  it("모르는 봉은 기본 위치로 떨어진다", () => {
+    // 1d를 저장한 옛 행이 남아 있어도 채널이 죽으면 안 된다.
+    assert.equal(scaleAt(scaleIndexOf("1d")).timeframe, DEFAULT_SCALE);
+  });
+});
+
+describe("percentileToScale", () => {
+  it("기본 백분위가 기본 봉으로 옮겨진다", () => {
+    // 옛 기본값(슬라이더 49)은 15분봉급 자리였다. 마이그레이션으로
+    // 사용자 설정이 조용히 다른 곳으로 가면 안 된다.
+    assert.equal(percentileToScale(SENSITIVITY_DEFAULT), DEFAULT_SCALE);
+  });
+
+  it("조용한 끝과 잦은 끝이 뒤집히지 않는다", () => {
+    assert.equal(percentileToScale(SENSITIVITY_MAX), "4h");
+    assert.equal(percentileToScale(SENSITIVITY_MIN), "1m");
+  });
+
+  it("경계값이 마이그레이션 SQL과 같다", () => {
+    // supabase/migrations/0003_channel_scale.sql이 같은 경계를 박아 두었다.
+    // 한쪽만 고치면 화면과 저장이 어긋난다.
+    assert.equal(percentileToScale(99.9785), "4h");
+    assert.equal(percentileToScale(99.9002), "1h");
+    assert.equal(percentileToScale(99.536), "15m");
+    assert.equal(percentileToScale(97.8454), "5m");
+    assert.equal(percentileToScale(95), "1m");
   });
 });

@@ -18,11 +18,9 @@
 // 같은 사건에는 어차피 알림이 하나뿐이다.
 
 import {
-  DETECTION_TIMEFRAME,
-  EVENT_GAP_SECONDS,
+  TIMEFRAME_MINUTES,
   TIMEFRAMES,
-  percentileToSlider,
-  sliderToRatio,
+  scaleRatio,
 } from "@flare-alert/core";
 import type { Alert, Channel, SymbolRef, Timeframe } from "@flare-alert/core";
 
@@ -49,15 +47,27 @@ function nextAlertId(): string {
 /**
  * 채널 설정에서 판정 배수를 뽑는다.
  *
- * channels.sensitivity에는 아직 백분위가 들어 있다. 그 값을 슬라이더
- * 위치로 되돌린 뒤 배수로 옮긴다. 사용자가 맞춰 둔 상대적 위치는 그대로
- * 유지되므로 마이그레이션 없이 넘어갈 수 있다.
- *
- * 임시 조치다. 축을 다시 손보면 저장된 값의 의미가 조용히 바뀌므로,
- * 결국 배수를 직접 저장하도록 스키마를 옮겨야 한다.
+ * 채널이 고른 것은 봉 길이 하나뿐이고 배수는 거기 딸려 온다. 봉마다 배수를
+ * 따로 두는 이유는 짧은 봉이 원래 더 심하게 튀기 때문이다 — 4배로 고정하면
+ * 1분봉은 하루 87회, 15분봉은 3.5회가 된다.
  */
 export function channelRatio(channel: Channel): number {
-  return sliderToRatio(percentileToSlider(channel.sensitivity));
+  return scaleRatio(channel.scale);
+}
+
+/**
+ * 사건이 끝났다고 보는 침묵 시간(초). 채널이 보는 봉 길이와 같다.
+ *
+ * 고정 300초를 쓰면 봉 길이에 따라 뜻이 달라진다. 4시간봉을 보는 채널에서
+ * 5분 식었다고 사건이 끝났다고 하면 큰 급등 하나가 여러 알림으로 쪼개지고,
+ * 1분봉에서 300초는 별개 급등 다섯 개를 하나로 묶는다.
+ *
+ * 무엇보다 SENSITIVITY_SCALES의 alertsPerDay가 "사건 간격 = 봉 길이"로
+ * 측정한 값이다. 여기서 다른 기준을 쓰면 화면에 적힌 "하루 4.2회"가
+ * 실제와 어긋난다.
+ */
+export function channelEventGapSeconds(channel: Channel): number {
+  return TIMEFRAME_MINUTES[channel.scale] * 60;
 }
 
 /** 설정 교체 시에도 넘겨야 하는 판정 상태. */
@@ -96,7 +106,7 @@ export class ChannelRuntime {
   /**
    * 이 초의 신호들로 알림을 낼지 정한다.
    *
-   * 판정은 DETECTION_TIMEFRAME 하나로만 한다. 나머지 프레임은 규모 라벨을
+   * 판정은 채널이 고른 봉 하나로만 한다. 나머지 프레임은 규모 라벨을
    * 붙이는 데만 쓴다 — 사건이 어디까지 번졌는지 보여주는 표시일 뿐,
    * 알림 여부에는 관여하지 않는다.
    */
@@ -109,11 +119,12 @@ export class ChannelRuntime {
     const threshold = channelRatio(this.channel);
 
     const primary = signals.find(
-      (signal) => signal.timeframe === DETECTION_TIMEFRAME,
+      (signal) => signal.timeframe === this.channel.scale,
     );
 
     // 사건 경계 판정은 이 초를 반영하기 "전"의 값으로 해야 한다.
-    const isNewEvent = atMs - this.#lastAboveAtMs > EVENT_GAP_SECONDS * 1000;
+    const gapMs = channelEventGapSeconds(this.channel) * 1000;
+    const isNewEvent = atMs - this.#lastAboveAtMs > gapMs;
 
     const above =
       primary !== undefined &&
@@ -150,7 +161,7 @@ export class ChannelRuntime {
         score: primary.score,
         quoteVolume: primary.quoteVolume,
         ratioToMedian: primary.ratioToMedian ?? 0,
-        scale: widestScale(signals, threshold),
+        scale: widestScale(signals, threshold, this.channel.scale),
       },
       merged: 0,
     };
@@ -160,15 +171,17 @@ export class ChannelRuntime {
 /**
  * 사건의 규모 라벨. 같은 배수를 넘긴 가장 긴 프레임이다.
  *
- * 판정과는 별개다. 15분 창이 4배인데 1시간 창까지 4배라면 훨씬 큰 사건이고,
- * 그걸 "1시간봉급"이라고 불러 준다.
+ * 판정과는 별개다. 채널이 15분봉급인데 1시간 창까지 같은 배수를 넘겼다면
+ * 훨씬 큰 사건이고, 그걸 "1시간봉급"이라고 불러 준다. 최소값은 채널이
+ * 고른 봉이다 — 그보다 작게 표시하면 판정 근거와 어긋난다.
  */
 function widestScale(
   signals: readonly FrameSignal[],
   threshold: number,
+  channelScale: Timeframe,
 ): Timeframe {
-  let scale: Timeframe = DETECTION_TIMEFRAME;
-  let order = FRAME_ORDER.get(DETECTION_TIMEFRAME) ?? 0;
+  let scale: Timeframe = channelScale;
+  let order = FRAME_ORDER.get(channelScale) ?? 0;
 
   for (const signal of signals) {
     if (signal.ratioToMedian === null || signal.ratioToMedian < threshold) {

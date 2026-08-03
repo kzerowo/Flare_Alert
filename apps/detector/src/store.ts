@@ -7,7 +7,12 @@
 import { createClient } from "@supabase/supabase-js";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { SENSITIVITY_MAX, SENSITIVITY_MIN, TIMEFRAMES } from "@flare-alert/core";
+import {
+  DEFAULT_SCALE,
+  TIMEFRAMES,
+  isScaleTimeframe,
+  percentileToScale,
+} from "@flare-alert/core";
 import type {
   Alert,
   BrowserTarget,
@@ -35,10 +40,27 @@ interface ChannelRow {
   user_id: string;
   name: string;
   enabled: boolean;
-  sensitivity: number;
+  scale: string | null;
+  sensitivity: number | null;
   timeframes: string[] | null;
   delivery: string[] | null;
   channel_symbols: { exchange: string; symbol: string }[] | null;
+}
+
+/**
+ * 채널이 판정에 쓸 봉 길이.
+ *
+ * scale 컬럼이 정본이다. 마이그레이션 0003 이전에 만들어진 행이 남아 있을
+ * 수 있어서, 비어 있으면 옛 백분위에서 옮긴다. 그것도 없으면 기본값이다.
+ */
+function toScale(row: ChannelRow): Timeframe {
+  if (row.scale !== null && isScaleTimeframe(row.scale)) {
+    return row.scale;
+  }
+  if (row.sensitivity !== null && Number.isFinite(row.sensitivity)) {
+    return percentileToScale(row.sensitivity);
+  }
+  return DEFAULT_SCALE;
 }
 
 function toExchange(value: string): Exchange {
@@ -84,7 +106,7 @@ export class Store {
     const { data, error } = await this.#client
       .from("channels")
       .select(
-        "id, user_id, name, enabled, sensitivity, timeframes, delivery, channel_symbols(exchange, symbol)",
+        "id, user_id, name, enabled, scale, sensitivity, timeframes, delivery, channel_symbols(exchange, symbol)",
       )
       .eq("enabled", true);
 
@@ -106,16 +128,6 @@ export class Store {
         continue;
       }
 
-      // 민감도가 범위를 벗어나면 임계 계산이 무너진다. DB 제약이 막고
-      // 있지만 상수를 조정하면 기존 행이 밖으로 나갈 수 있다.
-      if (
-        !Number.isFinite(row.sensitivity) ||
-        row.sensitivity < SENSITIVITY_MIN ||
-        row.sensitivity > SENSITIVITY_MAX
-      ) {
-        continue;
-      }
-
       channels.push({
         userId: row.user_id,
         channel: {
@@ -126,7 +138,7 @@ export class Store {
             exchange: toExchange(first.exchange),
             symbol: first.symbol,
           },
-          sensitivity: row.sensitivity,
+          scale: toScale(row),
           timeframes: toTimeframes(row.timeframes),
           delivery,
         },

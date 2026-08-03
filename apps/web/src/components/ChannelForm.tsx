@@ -177,9 +177,9 @@ export function ChannelForm({ initial, signedIn, onSave, onCancel }: Props) {
         </section>
 
         <SensitivitySlider
-          value={draft.sensitivity}
-          onChange={(sensitivity) =>
-            setDraft((previous) => ({ ...previous, sensitivity }))
+          value={draft.scale}
+          onChange={(scale) =>
+            setDraft((previous) => ({ ...previous, scale }))
           }
         />
 

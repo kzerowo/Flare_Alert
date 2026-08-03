@@ -1,4 +1,4 @@
-import { SENSITIVITY_DEFAULT, TIMEFRAMES } from "./constants.js";
+import { DEFAULT_SCALE, TIMEFRAMES } from "./constants.js";
 import type { Channel, DeliveryMethod, SymbolRef } from "./types.js";
 
 /**
@@ -64,7 +64,7 @@ export function createChannel(overrides: Partial<Channel> = {}): Channel {
     name: "",
     enabled: true,
     symbol: null,
-    sensitivity: SENSITIVITY_DEFAULT,
+    scale: DEFAULT_SCALE,
     timeframes: [...TIMEFRAMES],
     delivery: ["browser"],
     ...overrides,

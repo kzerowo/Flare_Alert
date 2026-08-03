@@ -11,6 +11,11 @@ import {
 } from "react";
 import type { ReactNode } from "react";
 
+import {
+  DEFAULT_SCALE,
+  isScaleTimeframe,
+  percentileToScale,
+} from "@flare-alert/core";
 import type { Channel } from "@flare-alert/core";
 
 import { useAuth } from "./auth";
@@ -71,15 +76,23 @@ function normalizeChannel(raw: unknown): Channel | null {
     return null;
   }
 
-  const record = raw as Record<string, unknown>;
+  const record = { ...(raw as Record<string, unknown>) };
 
   if ("symbols" in record && Array.isArray(record.symbols)) {
     const [first] = record.symbols as unknown[];
-    return { ...record, symbol: first ?? null } as Channel;
+    record.symbol = first ?? null;
+  } else if (!("symbol" in record) || record.symbol === undefined) {
+    record.symbol = null;
   }
 
-  if (!("symbol" in record) || record.symbol === undefined) {
-    return { ...record, symbol: null } as Channel;
+  // 민감도가 백분위이던 시절의 값. 봉 길이로 옮긴다. 슬라이더 위에서의
+  // 상대적 위치(조용한 쪽인지 잦은 쪽인지)는 그대로 유지된다.
+  if (typeof record.scale !== "string" || !isScaleTimeframe(record.scale)) {
+    record.scale =
+      typeof record.sensitivity === "number" &&
+      Number.isFinite(record.sensitivity)
+        ? percentileToScale(record.sensitivity)
+        : DEFAULT_SCALE;
   }
 
   return record as unknown as Channel;

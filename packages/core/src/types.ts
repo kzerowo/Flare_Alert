@@ -152,8 +152,20 @@ export interface Channel {
   enabled: boolean;
   /** 이 채널이 감시하는 종목. 아직 고르지 않았으면 null. */
   symbol: SymbolRef | null;
-  /** 채널 민감도. */
-  sensitivity: Sensitivity;
+  /**
+   * 민감도. 판정에 쓰는 창 길이다.
+   *
+   * 슬라이더가 정하는 유일한 값이고, 배수는 여기서 따라 나온다
+   * (SENSITIVITY_SCALES). 짧은 봉일수록 잦고 긴 봉일수록 드물다.
+   *
+   * 1d는 들어올 수 없다 — 하루치 거래대금은 평소의 3배가 되는 일이 없다.
+   */
+  scale: Timeframe;
+  /**
+   * @deprecated 옛 백분위 설정. 스케일 축으로 옮기기 전에 저장된 값이다.
+   * 읽기만 하고 판정에는 쓰지 않는다.
+   */
+  sensitivity?: Sensitivity;
   /** 감시할 프레임 목록. 비어 있으면 전체 프레임. */
   timeframes: Timeframe[];
   /** 전달 수단. 비어 있으면 감지는 하되 알림이 나가지 않는다. */
