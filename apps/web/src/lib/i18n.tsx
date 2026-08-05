@@ -152,6 +152,50 @@ const ko = {
     perDay: (value: string) => `하루 ${value}회`,
   },
 
+  test: {
+    open: "민감도 테스트",
+    openHint: "어디에 둘지 모르겠다면, 차트를 보고 직접 골라 보세요",
+    title: "민감도 테스트",
+    subtitle:
+      "실제 과거 차트에서 알림 받고 싶은 봉을 찍으면, 맞는 민감도를 찾아 드립니다.",
+    close: "닫기",
+
+    pickTitle: "어떤 길이의 봉으로 볼까요?",
+    pickHint: "평소 차트를 볼 때 쓰는 봉을 고르세요.",
+    pickFootnote: (symbol: string) =>
+      `${symbol} 선물의 실제 과거 거래량을 씁니다. 가격은 보여 주지 않습니다 — 알림이 보는 것이 거래량뿐이기 때문입니다.`,
+
+    loading: "과거 차트를 불러오는 중입니다",
+    errorTitle: "차트를 가져오지 못했습니다.",
+    errorHint:
+      "네트워크나 지역 제한으로 Binance에 닿지 못했을 수 있습니다. 테스트 없이 슬라이더로 직접 정하셔도 됩니다.",
+    errorTooFew: "쓸 만한 과거 구간을 충분히 찾지 못했습니다.",
+    retry: "다시 시도",
+
+    instruction: "알림 받고 싶은 봉을 모두 눌러 주세요",
+    instructionHint:
+      "정답은 없습니다. 이 정도면 알림이 와야 한다 싶은 봉을 고르시면 됩니다.",
+    chartLabel: "거래량 막대. 누르면 선택됩니다.",
+    progress: (current: number, total: number) => `${current} / ${total}번째`,
+    selectedCount: (count: number) => `${count}개 선택`,
+    next: "다음 차트",
+    finish: "결과 보기",
+    needMore: (count: number) => `${count}개 더 골라 주세요`,
+    needLabels: (count: number) =>
+      `민감도를 추정하려면 봉을 ${count}개 이상 골라야 합니다.`,
+
+    resultTitle: "추천 민감도",
+    scoreCaught: "찍은 것 중 잡음",
+    scoreExtra: "안 찍었는데 울림",
+    scoreRounds: "본 차트",
+    clampedLoud: (scale: string) =>
+      `${scale}에서 갈 수 있는 가장 잦은 자리입니다. 더 자주 받으시려면 더 짧은 봉으로 다시 해 보세요.`,
+    clampedQuiet: (scale: string) =>
+      `${scale}에서 갈 수 있는 가장 조용한 자리입니다. 더 드물게 받으시려면 더 긴 봉으로 다시 해 보세요.`,
+    apply: "이 민감도 쓰기",
+    restart: "다시 하기",
+  },
+
   auth: {
     login: "로그인",
     signup: "회원가입",
@@ -361,6 +405,50 @@ const en: Dictionary = {
     never: "almost never",
     everyNDays: (days: number) => `once every ${days} days`,
     perDay: (value: string) => `${value} a day`,
+  },
+
+  test: {
+    open: "Find my sensitivity",
+    openHint: "Not sure where to set it? Pick it off a real chart instead.",
+    title: "Sensitivity test",
+    subtitle:
+      "Mark the bars you'd want an alert on, and we'll find the setting that matches.",
+    close: "Close",
+
+    pickTitle: "Which bar length do you watch?",
+    pickHint: "Pick the timeframe you normally read charts on.",
+    pickFootnote: (symbol: string) =>
+      `Real historical ${symbol} futures turnover. Price is not shown — turnover is all the alert looks at.`,
+
+    loading: "Loading historical charts",
+    errorTitle: "Couldn't load the charts.",
+    errorHint:
+      "Binance may be unreachable from your network or region. You can still set the slider by hand.",
+    errorTooFew: "Couldn't find enough usable historical windows.",
+    retry: "Try again",
+
+    instruction: "Click every bar you'd want an alert on",
+    instructionHint:
+      "There's no right answer — just mark what feels worth knowing about.",
+    chartLabel: "Turnover bars. Click to select.",
+    progress: (current: number, total: number) => `${current} of ${total}`,
+    selectedCount: (count: number) => `${count} selected`,
+    next: "Next chart",
+    finish: "See result",
+    needMore: (count: number) => `Pick ${count} more`,
+    needLabels: (count: number) =>
+      `Mark at least ${count} bars so we can estimate a sensitivity.`,
+
+    resultTitle: "Suggested sensitivity",
+    scoreCaught: "Of yours, caught",
+    scoreExtra: "Fired unmarked",
+    scoreRounds: "Charts seen",
+    clampedLoud: (scale: string) =>
+      `This is as frequent as ${scale} goes. For more alerts, run the test again on a shorter bar.`,
+    clampedQuiet: (scale: string) =>
+      `This is as quiet as ${scale} goes. For fewer alerts, run the test again on a longer bar.`,
+    apply: "Use this sensitivity",
+    restart: "Start over",
   },
 
   auth: {

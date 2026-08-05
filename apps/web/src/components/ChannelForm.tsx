@@ -16,6 +16,7 @@ import { formatProblem, useT } from "@/lib/i18n";
 import { CoinIcon } from "./CoinIcon";
 import { Icon } from "./Icon";
 import { SensitivitySlider } from "./SensitivitySlider";
+import { SensitivityTest } from "./SensitivityTest";
 
 interface Props {
   /**
@@ -40,6 +41,7 @@ export function ChannelForm({ initial, signedIn, onSave, onCancel }: Props) {
   );
   const [query, setQuery] = useState("");
   const [showProblems, setShowProblems] = useState(false);
+  const [testing, setTesting] = useState(false);
 
   const selected = draft.symbol?.symbol ?? null;
 
@@ -83,6 +85,18 @@ export function ChannelForm({ initial, signedIn, onSave, onCancel }: Props) {
   }
 
   return (
+    <>
+    {testing ? (
+      <SensitivityTest
+        symbol={selected}
+        onApply={(sensitivityLevel) => {
+          setDraft((previous) => ({ ...previous, sensitivityLevel }));
+          setTesting(false);
+        }}
+        onClose={() => setTesting(false)}
+      />
+    ) : null}
+
     <div className="panel overflow-hidden rounded-xl">
       <div className="border-b border-white/5 p-6">
         <h2 className="text-display">
@@ -176,12 +190,34 @@ export function ChannelForm({ initial, signedIn, onSave, onCancel }: Props) {
           </div>
         </section>
 
-        <SensitivitySlider
-          value={draft.sensitivityLevel}
-          onChange={(sensitivityLevel) =>
-            setDraft((previous) => ({ ...previous, sensitivityLevel }))
-          }
-        />
+        <div className="space-y-4">
+          <SensitivitySlider
+            value={draft.sensitivityLevel}
+            onChange={(sensitivityLevel) =>
+              setDraft((previous) => ({ ...previous, sensitivityLevel }))
+            }
+          />
+
+          {/*
+            슬라이더 밑에 둔다. 처음 온 사람은 1~100 중 어디가 자기 자리인지
+            모르는데, 슬라이더를 먼저 보고 나서야 그 막막함이 생긴다.
+          */}
+          <button
+            type="button"
+            onClick={() => setTesting(true)}
+            className="flex w-full items-center gap-4 rounded-lg border border-dashed border-primary/30 p-4 text-left transition-colors hover:border-primary/60 hover:bg-primary/5"
+          >
+            <span className="shrink-0 text-primary">
+              <Icon name="chart" size={20} />
+            </span>
+            <span className="flex flex-col">
+              <span className="text-body text-primary">{t.test.open}</span>
+              <span className="text-body-sm text-on-surface-variant">
+                {t.test.openHint}
+              </span>
+            </span>
+          </button>
+        </div>
 
         {/* 전달 수단 */}
         <section className="space-y-4">
@@ -237,5 +273,6 @@ export function ChannelForm({ initial, signedIn, onSave, onCancel }: Props) {
         </button>
       </div>
     </div>
+    </>
   );
 }

@@ -122,6 +122,8 @@ All actively traded on Binance USDT. Coin icons live in `apps/web/public/coins/`
 │       │   ├── AuthDialog.tsx             # Login/signup against Supabase Auth, incl. forgot-password
 │       │   ├── ResetPasswordDialog.tsx    # Password reset via PASSWORD_RECOVERY event
 │       │   ├── SensitivitySlider.tsx      # Interactive sensitivity control with frame-standard tick marks
+│       │   ├── SensitivityTest.tsx        # Label real charts to find your own sensitivity level
+│       │   ├── VolumeChart.tsx            # Clickable turnover bars (volume only, linear, no baseline)
 │       │   ├── LanguageToggle.tsx         # ko/en segmented control
 │       │   └── Icon.tsx                   # Inline SVG icons
 │       └── src/lib/
@@ -131,6 +133,7 @@ All actively traded on Binance USDT. Coin icons live in `apps/web/public/coins/`
 │           ├── alerts.tsx                 # AlertStoreProvider: fetch + Realtime subscription
 │           ├── channel-store.tsx          # Guest (sessionStorage) / member (Supabase) dual mode
 │           ├── push.ts                    # Web Push subscription: request permission, subscribe, persist
+│           ├── test-charts.ts             # Sensitivity test: random non-overlapping futures windows via REST
 │           └── supabase/
 │               ├── config.ts              # Env vars; isSupabaseConfigured(); VAPID_PUBLIC_KEY
 │               ├── client.ts              # Cached browser client (null when unconfigured)
@@ -146,6 +149,7 @@ All actively traded on Binance USDT. Coin icons live in `apps/web/public/coins/`
 │       ├── percentile.ts       # Histogram percentile estimator (Fenwick tree)
 │       ├── cooldown.ts         # Time-decay cooldown
 │       ├── sensitivity.ts      # Slider ↔ percentile conversion, channel rate curve
+│       ├── sensitivity-test.ts # Chart labels → threshold ratio (F1) → slider level
 │       └── sensitivity.test.ts
 ├── supabase/migrations/
 │   ├── 0001_init.sql            # profiles / channels / channel_symbols + RLS
@@ -319,7 +323,7 @@ cp .env.example .env
 pnpm dev:web                # builds core, then next dev on :3000
 pnpm dev:detector           # builds core, then runs detector (live Binance)
 
-pnpm test                   # 108 tests (97 core + 11 detector)
+pnpm test                   # 123 tests (112 core + 11 detector)
 pnpm typecheck              # all 4 workspaces
 pnpm build                  # topological build
 pnpm clean
@@ -412,7 +416,7 @@ Next.js reads `apps/web/.env.local`, not the root `.env`. There is no Binance AP
 
 ## Testing
 
-`packages/core`: 97 tests (`node:test`) — math primitives, baseline/score edge cases, percentile accuracy vs. exact sorted ranks, day-based sample eviction, cooldown behavior, slider↔percentile round-trips, scale markers, alert-rate description thresholds, the five-stop scale axis (monotone rate/ratio, `1d` excluded, index↔bar round-trip, percentile→scale boundaries pinned against migration 0003), and the continuous 1–100 axis (anchors reproduced exactly at 20/40/60/80/100, rate monotone across all 100 positions **including band boundaries**, ratio monotone within a band, ratio stays inside the measured curve range, band anchors pinned against migration 0004, and curve↔table agreement).
+`packages/core`: 112 tests (`node:test`) — math primitives, baseline/score edge cases, percentile accuracy vs. exact sorted ranks, day-based sample eviction, cooldown behavior, slider↔percentile round-trips, scale markers, alert-rate description thresholds, the five-stop scale axis (monotone rate/ratio, `1d` excluded, index↔bar round-trip, percentile→scale boundaries pinned against migration 0003), and the continuous 1–100 axis (anchors reproduced exactly at 20/40/60/80/100, rate monotone across all 100 positions **including band boundaries**, ratio monotone within a band, ratio stays inside the measured curve range, band anchors pinned against migration 0004, and curve↔table agreement), and the sensitivity test's label fitting (15 tests — baseline warmup gap, median-not-mean, band coverage, in-band results at both extremes, misclick rejection among a realistic 90-bar background, threshold landing between the two label groups, clamp direction at each band end, and result numbers matching what the slider shows at that level).
 
 `apps/detector`: 11 tests — window alignment to absolute epoch boundaries, elapsed-time gating, velocity computation, late/early trade buffer, and (most importantly) that minute-granularity backfill and second-granularity live stepping produce identical windows — this is what lets cold-start priming share the live code path.
 
@@ -686,6 +690,46 @@ Note also that "1–100 slider" is not a return to the abandoned percentile axis
 ### Not yet done
 
 **Migration `0004` has not been applied to the live Supabase database.** Until it is, the web app and detector will query a `sensitivity_level` column that does not exist. This is the one deploy step this work left open.
+
+## Sensitivity Test (implemented 2026-08-05)
+
+**Opening the slider to 1–100 gave freedom to people who don't yet know where they belong.** "4.8 alerts/day" doesn't tell a first-time user whether that's a lot. So instead of asking, the app shows: real historical turnover charts, the user clicks the bars they'd want alerted on, and the labels are inverted back into a slider position.
+
+**This is the same procedure that produced 3.5×**, run per-user inside the app. The user hand-marked 14 bars on a futures 5m chart; the multiple catching all of them was 3.5. `fitSensitivity()` does that scoring automatically.
+
+Flow: pick a bar length → 5–10 charts of ~100 bars each → click bars → recommended level.
+
+### It does not touch the detection algorithm
+
+`packages/core/src/sensitivity-test.ts` is a pure read of the existing axis — it calls `sensitivityAt()` and reads `LOOKBACK_WINDOW_COUNT`. Nothing in `apps/detector/`, `constants.ts`, the migrations, or the firing rule changed. The output is a `sensitivityLevel` integer, exactly what the slider already produces.
+
+Consequently, re-measuring anchors or `SCALE_RATE_CURVES` needs **zero** changes here — the recommendation follows the tables. The one thing that would require a rewrite is abandoning bar-length snapping for continuous windows, which decisions.md 10 exists to prevent.
+
+### Fit method: F1 over free thresholds, then snap to the band
+
+**Two stages, and the order matters.** First find the threshold ratio from labels alone, ignoring the band; then snap that ratio to the nearest level inside the chosen bar's band.
+
+The first implementation swept only the band's twenty levels, and it was wrong: when the user's criterion sits outside what that bar can express, all twenty score identically and the tie-break lands mid-band. Labeling 2× bars on a 5m chart (band floor 3.5×) fires nothing anywhere → 0 everywhere → returns level 70 when the answer is 80. Fitting the ratio freely first keeps the direction, so the snap picks the correct end. Two tests pin this.
+
+**Scoring is F1, not "catch every click."** Chosen by the user, whose reason was that people mis-click and judge the same bar differently round to round. Minimum-ratio lets one slip drag sensitivity to the band's loud end. F1 discards a slip that lands among ordinary bars — reaching it costs more precision than it gains recall. A slip on an *isolated* bar is not recoverable by any method; the test asserts the realistic case (90 ordinary bars spanning 0.4–2.2×).
+
+Ties pick the geometric middle of the tied thresholds — with a gap between clicked and unclicked bars, every threshold in it scores the same, and an edge pick flips on the next round's labels.
+
+`clamped` is computed from actual performance at the chosen level (`recall < 1` at the band's loud end, `extra > 0` at its quiet end), not from where the raw ratio fell. A ratio can land outside the band and still score perfectly inside it.
+
+### Deliberate omissions in the chart
+
+- **Volume only, no price candles.** Showing price makes users mark "bars that went up," which is not what the detector fires on. Their labels would then encode a criterion the algorithm cannot express.
+- **No baseline line drawn** — neither median nor MA. Drawing one tells the user our answer and reads it back as their label. It is also the one question § Continuous Sensitivity still lists as open.
+- **Linear y-axis**, matching TradingView and the charts the 3.5× labels came from. Log scale would flatten spikes.
+
+### Data
+
+Live Binance futures REST from the browser (`fapi.binance.com/fapi/v1/klines`, `Access-Control-Allow-Origin: *`, no key). Verified end-to-end: 132 klines requested and returned, 0 null ratios, top ratios 23.3/19.8/13.7/10.6/6.6.
+
+Windows are non-overlapping by construction — the history range is split into equal slots, one random point per slot, so the same spike never appears twice. `isDiscriminating()` rejects dead periods (needs ≥1 bar at 5×, ≥2 at 3×, and ≤25 of 100 above 3× so the chart still separates). Candidates are over-fetched 2× in parallel; unqualifying windows are kept as fallback rather than leaving the user short of rounds.
+
+Field 7 (quote volume) is used, not field 5 — the latter is coin count, not comparable across symbols and not what the algorithm reads.
 
 ## Known Gaps & Next Steps
 
