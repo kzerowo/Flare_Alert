@@ -48,6 +48,17 @@ const EVALUATION_LAG_SECONDS = 1;
  */
 const CHANNEL_REFRESH_MS = 60_000;
 
+/**
+ * 체결이 끊긴 것을 의심하기까지 기다리는 시간(ms).
+ *
+ * 감시 대상은 바이낸스 선물의 주요 종목이라 1초에도 수십 건씩 체결된다.
+ * 60초 내내 한 건도 없다면 시장이 조용한 게 아니라 스트림이 죽은 것이다.
+ */
+const STREAM_SILENCE_WARN_MS = 60_000;
+
+/** 침묵 경고를 다시 내기까지의 간격(ms). 매 초 같은 줄을 찍으면 로그가 묻힌다. */
+const STREAM_SILENCE_REPEAT_MS = 300_000;
+
 export type LogLevel = "debug" | "info" | "warn" | "error";
 export type Logger = (level: LogLevel, message: string) => void;
 
@@ -81,6 +92,9 @@ export class DetectorService {
   #stream: AggTradeStream | null = null;
   #tick: NodeJS.Timeout | null = null;
   #refresh: NodeJS.Timeout | null = null;
+  #silence: NodeJS.Timeout | null = null;
+  /** 마지막으로 침묵 경고를 낸 시각. 같은 경고를 도배하지 않으려고 둔다. */
+  #silenceWarnedAtMs = 0;
   #nextSecond = 0;
   #alertCount = 0;
   #pushSent = 0;
@@ -118,19 +132,71 @@ export class DetectorService {
 
     this.#startClock();
     this.#startChannelRefresh();
+    this.#startSilenceWatch();
     this.#ready = true;
   }
 
   stop(): void {
-    for (const timer of [this.#tick, this.#refresh]) {
+    for (const timer of [this.#tick, this.#refresh, this.#silence]) {
       if (timer !== null) {
         clearInterval(timer);
       }
     }
     this.#tick = null;
     this.#refresh = null;
+    this.#silence = null;
     this.#stream?.stop();
     this.#stream = null;
+  }
+
+  /**
+   * 체결이 들어오지 않는 것을 알아챈다.
+   *
+   * 스트림이 죽어도 시계는 그대로 돌고 평가 카운터도 올라간다. 창에 0이
+   * 채워질 뿐이라 배수가 임계에 닿지 않고, 겉으로는 "시장이 조용한 것"과
+   * 구별되지 않는다. 실제로 이 상태로 이틀을 흘려보낸 적이 있다 —
+   * 경위는 binance.ts 상단 주석 참고.
+   *
+   * 연결 자체는 성공하므로 WS의 close 이벤트로는 잡을 수 없다. 판단 근거는
+   * "붙어 있는데 체결이 없다" 하나뿐이다.
+   */
+  #startSilenceWatch(): void {
+    this.#silence = setInterval(() => {
+      if (this.#priming || this.#detector.symbols.length === 0) {
+        return;
+      }
+
+      const now = Date.now();
+      const silentFor = (symbol: string): number => {
+        const { lastIngestAtMs } = this.#detector.aggregator(symbol)
+          .ingestDiagnostics;
+        // 한 건도 못 받았으면 프로세스 시작부터 내내 조용했던 것이다.
+        return now - (lastIngestAtMs === 0 ? this.#startedAtMs : lastIngestAtMs);
+      };
+
+      const stale = this.#detector.symbols.filter(
+        (symbol) => silentFor(symbol) >= STREAM_SILENCE_WARN_MS,
+      );
+
+      if (stale.length === 0) {
+        this.#silenceWarnedAtMs = 0;
+        return;
+      }
+
+      if (now - this.#silenceWarnedAtMs < STREAM_SILENCE_REPEAT_MS) {
+        return;
+      }
+      this.#silenceWarnedAtMs = now;
+
+      const worst = Math.max(...stale.map(silentFor));
+      this.#log(
+        "error",
+        `체결이 ${Math.floor(worst / 1000)}초째 들어오지 않습니다 ` +
+          `(${stale.join(", ")}). 연결은 살아 있어도 데이터가 없으면 ` +
+          `알림은 나가지 않습니다. BINANCE_WS_URL을 확인하세요 ` +
+          `— 현재 ${this.#config.binanceWsUrl}`,
+      );
+    }, 15_000);
   }
 
   // -------------------------------------------------------------------------
@@ -495,9 +561,12 @@ export class DetectorService {
       for (const timeframe of TIMEFRAMES) {
         samples[timeframe] = this.#detector.sampleCount(symbol, timeframe);
       }
+      const aggregator = this.#detector.aggregator(symbol);
       symbols[symbol] = {
-        warmup: this.#detector.aggregator(symbol).warmupState(),
+        warmup: aggregator.warmupState(),
         percentileSamples: samples,
+        lastPrice: aggregator.lastPrice,
+        ingest: aggregator.ingestDiagnostics,
       };
     }
 

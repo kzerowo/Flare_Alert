@@ -98,6 +98,10 @@ export class SymbolAggregator {
   #lastPrice = 0;
   #currentSecond = -1;
   #firstSecond = -1;
+  /** 진단용. 실시간 체결이 실제로 들어오고 있는지 확인한다. */
+  #lastIngestAtMs = 0;
+  #ingestCount = 0;
+  #droppedLateCount = 0;
 
   constructor(symbol: string) {
     this.symbol = symbol;
@@ -112,6 +116,19 @@ export class SymbolAggregator {
     return this.#currentSecond;
   }
 
+  /** 진단용. */
+  get ingestDiagnostics(): {
+    lastIngestAtMs: number;
+    ingestCount: number;
+    droppedLateCount: number;
+  } {
+    return {
+      lastIngestAtMs: this.#lastIngestAtMs,
+      ingestCount: this.#ingestCount,
+      droppedLateCount: this.#droppedLateCount,
+    };
+  }
+
   /**
    * 체결 하나를 버퍼에 담는다.
    *
@@ -120,11 +137,15 @@ export class SymbolAggregator {
    * 실제 반영은 시계가 그 초를 지날 때 한다.
    */
   ingest(timestampMs: number, price: number, quoteVolume: number): void {
+    this.#lastIngestAtMs = Date.now();
+    this.#ingestCount += 1;
+
     const second = Math.floor(timestampMs / 1000);
 
     // 이미 지나간 초의 체결은 버린다. 늦게 온 체결을 소급 반영하면
     // 같은 창을 두 번 다른 값으로 평가하게 된다.
     if (second <= this.#currentSecond) {
+      this.#droppedLateCount += 1;
       return;
     }
 

@@ -98,7 +98,14 @@ export function loadConfig(): DetectorConfig {
   return {
     // USD-M 선물 스트림이다. 현물(stream.binance.com)이 아니다 —
     // 이유는 binance.ts 상단 주석 참고.
-    binanceWsUrl: optionalEnv("BINANCE_WS_URL", "wss://fstream.binance.com/ws"),
+    //
+    // 경로에 /market이 반드시 있어야 한다. 2026-04-23부로 레거시 주소
+    // (fstream.binance.com/ws)가 폐지되어 aggTrade가 밀려났다 — 자세한
+    // 내용은 binance.ts의 "레거시 주소는 조용히 죽는다" 주석 참고.
+    binanceWsUrl: optionalEnv(
+      "BINANCE_WS_URL",
+      "wss://fstream.binance.com/market/ws",
+    ),
     symbols,
     supabase: loadSupabase(),
     vapid: loadVapid(),

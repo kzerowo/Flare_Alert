@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-_Last updated: 2026-08-04 01:30_
+_Last updated: 2026-08-05 13:30_
 
 ## Project Overview
 
@@ -401,7 +401,7 @@ See `docs/decisions.md` (Korean) for full rationale.
 ## Environment Variables
 
 - `DETECTOR_SYMBOLS` — detector only; comma-separated (`BTCUSDT,ETHUSDT`). Defaults to BTC/ETH/SOL. Stands in for standalone mode; each symbol costs ~29 REST requests and ~3s at boot.
-- `BINANCE_WS_URL` — defaults to `wss://fstream.binance.com/ws` (**USD-M futures**, not spot)
+- `BINANCE_WS_URL` — defaults to `wss://fstream.binance.com/market/ws` (**USD-M futures**, not spot). **The `/market` segment is load-bearing** — the legacy `/ws` path was retired 2026-04-23 and now fails silently: it accepts the connection, acknowledges `SUBSCRIBE` with `{"result":null}`, lists the subscription back, and never pushes a trade. See § Silent Stream Death.
 - `PORT` — health-check HTTP port (default 8080)
 - `LOG_LEVEL` — `debug` | `info` | `warn` | `error`
 - `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` — detector; generate via `pnpm --filter @flare-alert/detector keys`
@@ -642,7 +642,7 @@ Switching data source alone, with the *existing* baseline (median-48), put all 1
 ### What changed
 
 - `binance.ts`: REST `fapi.binance.com/fapi/v1`, `exchangeInfo` filtered to `contractType: PERPETUAL` (excludes quarterlies).
-- `config.ts` / `.env` / `.env.example`: `wss://fstream.binance.com/ws`.
+- `config.ts` / `.env` / `.env.example`: `wss://fstream.binance.com/market/ws`. (Originally written as `/ws`, which was already retired — see § Silent Stream Death.)
 - `label-window.mjs`, `label-bars.mjs`, `minute-rate.mjs`: futures REST.
 - aggTrade message shape is identical across both markets (`e/s/p/q/T`), so parsing is untouched.
 
@@ -665,6 +665,52 @@ Parsing was validated against Binance's own 5m klines: totals matched to the **e
 3. **`evaluate()` runs once per channel, not once per symbol** ([service.ts:402-408](apps/detector/src/service.ts#L402-L408)). Five channels on BTCUSDT recompute all six frames five times per second (~30 frame-evals/sec observed). This contradicts decisions.md #10 ("compute the expensive part once per symbol") and also multiplies percentile-estimator samples. Wasteful rather than wrong for ratio-based firing, but it should be hoisted per symbol.
 
 4. **All pre-2026-08-04 quality measurements are spot-derived** — alert quality/lift, hour-of-day confound, turnover floor buckets, label-fit recall/precision. Their *methods* stand; their *numbers* do not. Re-run before citing.
+
+## Silent Stream Death (found and fixed 2026-08-06)
+
+**The futures switch shipped with a retired WebSocket URL, and live detection was dead for two days without producing a single error.**
+
+Binance retired the legacy USD-M futures stream paths on **2026-04-23**. `aggTrade` moved under the `/market` route:
+
+```
+dead: wss://fstream.binance.com/ws          ← accepts everything, pushes nothing
+live: wss://fstream.binance.com/market/ws
+```
+
+The futures switch (`5e2f8a0`, 2026-08-04 01:31 KST) was written against the pre-retirement URL, so **futures live detection never worked at all.**
+
+### Why nothing caught it
+
+The legacy endpoint does not refuse the connection. Measured directly:
+
+- TCP, TLS (valid `*.binance.com` cert, no interception), and the WS handshake all succeed.
+- `SUBSCRIBE` returns `{"result":null,"id":1}` — the success response.
+- `LIST_SUBSCRIPTIONS` echoes the subscription back as active.
+- Zero market data, forever. Even `!markPrice@arr@1s`, which pushes unconditionally every second, returns nothing.
+
+So every signal a process can check said "connected". The boot log printed `스트림 연결됨`, the 1-second clock kept ticking, and `evaluations.evaluated` climbed at the normal rate — because that clock is a local `setInterval` that runs whether or not trades arrive. The aggregator simply committed 0 volume every second, ratios never approached threshold, and the detector looked exactly like a quiet market.
+
+### The alerts that "proved" it was working were restart artifacts
+
+`alerts` rows fall into two shapes, and the seconds field separates them:
+
+| `fired_at` seconds | Origin |
+|---|---|
+| arbitrary (`13:49:55`, `14:20:51`) | live WS detection |
+| exactly `:00` | first tick after backfill |
+
+After backfill, `#nextSecond` is set to `lastMinuteSecond + 60` — a minute boundary. That first live evaluation reads a trailing window still full of REST-backfilled data, so it can fire immediately, always landing on `:00`. Every subsequent second adds zero volume and the process goes silent for good.
+
+**The last live alert was 2026-08-03 15:49:52 UTC — 42 minutes before the futures commit.** Everything after it was `:00`. The `:00`/arbitrary split is the fastest way to tell "the detector is working" from "the detector restarted."
+
+The 1m channel never even produced a restart artifact, because the 1m frame is deliberately excluded from backfill priming (§ Detection Pipeline). That asymmetry is what made the bug present as *"only the 1m alerts stopped"* — the misleading symptom that framed the whole investigation.
+
+### What was added
+
+- `SymbolAggregator.ingestDiagnostics` — `lastIngestAtMs` / `ingestCount` / `droppedLateCount`, surfaced per symbol in `/health` alongside `lastPrice`. `ingestCount: 0` on a live process is unambiguous; nothing else in the old snapshot was.
+- A silence watchdog in `service.ts` (`#startSilenceWatch`): if a watched symbol goes `STREAM_SILENCE_WARN_MS` (60s) with no trades, it logs an **error** naming the offending symbols and the configured `BINANCE_WS_URL`. Majors trade dozens of times a second, so a silent minute is never the market.
+
+**Diagnosing this class of failure starts at `/health` → `symbols.<SYM>.ingest`.** A healthy detector's `ingestCount` climbs by hundreds every few seconds; `evaluations.evaluated` climbing proves only that the process is alive.
 
 ## Continuous Sensitivity (implemented 2026-08-03)
 
