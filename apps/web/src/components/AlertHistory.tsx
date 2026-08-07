@@ -122,9 +122,6 @@ function AlertItem({
           <span className="label rounded border border-primary/20 bg-primary/10 px-2 py-[2px] text-primary">
             {t.frameScale[alert.scale]}
           </span>
-          <span className="text-body-sm text-on-surface-variant">
-            {t.alerts.ratio(alert.ratioToMedian.toFixed(1))}
-          </span>
         </div>
 
         <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-body-sm text-on-surface-variant">

@@ -131,7 +131,14 @@ export type Database = {
       };
     };
     Views: Record<string, never>;
-    Functions: Record<string, never>;
+    Functions: {
+      // supabase/migrations/0005_delete_own_account.sql. 인자를 받지 않는다
+      // — auth.uid()로만 지운다. 남의 계정을 지울 방법이 없어야 한다.
+      delete_own_account: {
+        Args: Record<PropertyKey, never>;
+        Returns: void;
+      };
+    };
     Enums: Record<string, never>;
     CompositeTypes: Record<string, never>;
   };

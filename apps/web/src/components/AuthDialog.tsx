@@ -15,29 +15,78 @@ interface Props {
 }
 
 /**
+ * 구글 "G" 로고.
+ *
+ * Icon.tsx의 나머지 아이콘과 달리 currentColor를 안 따른다 — 구글 브랜드
+ * 4색이 고정이라 모노라인 체계에 넣지 않고 여기 따로 둔다.
+ */
+function GoogleMark() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true">
+      <path
+        fill="#EA4335"
+        d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.9 2.4 30.4 0 24 0 14.6 0 6.5 5.4 2.6 13.2l7.9 6.1C12.3 13.1 17.7 9.5 24 9.5Z"
+      />
+      <path
+        fill="#4285F4"
+        d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.6c-.6 3-2.2 5.5-4.7 7.2l7.4 5.7c4.3-4 6.8-9.9 6.8-17.4Z"
+      />
+      <path
+        fill="#FBBC05"
+        d="M10.5 28.3A14.5 14.5 0 0 1 9.7 24c0-1.5.3-3 .8-4.3l-7.9-6.1A24 24 0 0 0 0 24c0 3.9.9 7.5 2.6 10.7l7.9-6.4Z"
+      />
+      <path
+        fill="#34A853"
+        d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.4-5.7c-2.1 1.4-4.8 2.2-8.5 2.2-6.3 0-11.7-3.6-13.5-8.7l-7.9 6.4C6.5 42.6 14.6 48 24 48Z"
+      />
+    </svg>
+  );
+}
+
+/**
  * 로그인 / 회원가입.
  *
  * Supabase Auth를 쓴다. 비밀번호는 이 컴포넌트를 지나 바로 Supabase로
  * 가고 우리 서버에는 남지 않는다.
  *
- * 시안에 있던 구글 로그인과 API 키 버튼은 뺐다. 연결한 공급자가 없어서
- * 누르면 아무 일도 일어나지 않는 버튼이 두 개 더 생길 뿐이다.
- * "AES-256 암호화" 같은 문구도 뺐다. 사실이 아니다.
+ * "AES-256 암호화" 같은 문구는 뺐다. 사실이 아니다.
+ *
+ * 구글 버튼은 Supabase 대시보드에서 공급자를 켜고 리디렉션 URL을 등록해야
+ * 실제로 동작한다. 그 전에는 눌러도 오류만 난다 — 콘솔 설정이 먼저다.
  */
 export function AuthDialog({ mode, onClose }: Props) {
   const t = useT();
-  const { signIn, signUp, sendPasswordReset, available } = useAuth();
+  const { signIn, signUp, signInWithGoogle, sendPasswordReset, available } =
+    useAuth();
 
   const [current, setCurrent] = useState<Mode>(mode);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
+  const [googleBusy, setGoogleBusy] = useState(false);
   const [problem, setProblem] = useState<AuthProblem | null>(null);
   const [sentConfirmation, setSentConfirmation] = useState(false);
   const [sentReset, setSentReset] = useState(false);
 
   const isLogin = current === "login";
   const isForgot = current === "forgot";
+
+  async function submitGoogle(): Promise<void> {
+    if (googleBusy) {
+      return;
+    }
+    setGoogleBusy(true);
+    setProblem(null);
+
+    const result = await signInWithGoogle();
+
+    // 성공하면 브라우저가 이미 구글로 떠났으니 여기 도달하지 않는다.
+    // 도달했다는 것 자체가 실패다.
+    setGoogleBusy(false);
+    if (!result.ok) {
+      setProblem(result.problem ?? "unknown");
+    }
+  }
 
   async function submit(event: React.FormEvent): Promise<void> {
     event.preventDefault();
@@ -125,7 +174,28 @@ export function AuthDialog({ mode, onClose }: Props) {
             {sentReset ? t.auth.resetSent : t.auth.checkEmail}
           </p>
         ) : (
-          <form className="mt-12 space-y-6" onSubmit={submit}>
+          <>
+            {isForgot ? null : (
+              <div className="mt-12">
+                <button
+                  type="button"
+                  onClick={() => void submitGoogle()}
+                  disabled={!available || googleBusy}
+                  className="flex h-12 w-full items-center justify-center gap-3 rounded-lg border border-outline-variant bg-sunken text-body-sm font-semibold transition-colors hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <GoogleMark />
+                  {googleBusy ? t.auth.working : t.auth.continueWithGoogle}
+                </button>
+
+                <div className="my-6 flex items-center gap-3 text-body-sm text-outline">
+                  <span className="h-px flex-grow bg-white/10" />
+                  {t.auth.orDivider}
+                  <span className="h-px flex-grow bg-white/10" />
+                </div>
+              </div>
+            )}
+
+          <form className={isForgot ? "mt-12 space-y-6" : "space-y-6"} onSubmit={submit}>
             <div className="space-y-1">
               <label htmlFor="auth-email" className="label block px-1 text-on-surface-variant">
                 {t.auth.email}
@@ -204,6 +274,7 @@ export function AuthDialog({ mode, onClose }: Props) {
               {busy ? null : <Icon name="arrow-right" size={16} />}
             </button>
           </form>
+          </>
         )}
 
         <p className="mt-6 rounded-lg border border-white/5 bg-white/[0.02] p-4 text-body-sm leading-relaxed text-on-surface-variant">

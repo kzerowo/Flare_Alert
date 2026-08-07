@@ -67,7 +67,7 @@ export function ChannelCard({
                 {t.card.sensitivity}
               </p>
               <p className="font-mono text-headline text-primary">
-                {t.frameScale[setting.timeframe]}
+                {channel.sensitivityLevel}%
               </p>
             </div>
             <div className="text-right">
@@ -83,7 +83,7 @@ export function ChannelCard({
           <div>
             <p className="label mb-1 text-on-surface-variant">{t.card.catches}</p>
             <p className="text-body-sm">
-              {t.card.catchesFrom(t.frameScale[scale], setting.ratio)}
+              {t.card.catchesFrom(t.frameScale[scale])}
             </p>
           </div>
 

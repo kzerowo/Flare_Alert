@@ -65,7 +65,6 @@ const ko = {
     minutesAgo: (n: number) => `${n}분 전`,
     hoursAgo: (n: number) => `${n}시간 전`,
     daysAgo: (n: number) => `${n}일 전`,
-    ratio: (times: string) => `평소의 ${times}배`,
     volume: (amount: string) => `거래대금 ${amount}`,
     remove: "이 기록 지우기",
     emptyTitle: "아직 알림이 없습니다",
@@ -92,8 +91,7 @@ const ko = {
     sensitivity: "민감도",
     perDay: "예상 알림/하루",
     catches: "잡는 규모",
-    catchesFrom: (frame: string, ratio: number) =>
-      `${frame} 거래대금이 평소의 ${ratio}배 이상`,
+    catchesFrom: (frame: string) => `${frame} 거래대금 급등`,
     delivery: "알림 방법",
     history: "알림 기록",
     edit: "편집",
@@ -133,17 +131,14 @@ const ko = {
 
   slider: {
     label: "민감도",
-    /** 배수 뒤에 붙는 말. "4배" */
-    ratioSuffix: "배",
     quiet: "조용히",
     frequent: "자주",
     summaryTitle: "이 설정이면",
-    /** 봉 이름이 주인공이고 배수는 그 자리에 딸려 오는 값이다. */
-    catchesScale: (scale: string, ratio: string) =>
-      `${scale} 급등을 잡습니다. 그 길이의 거래대금이 평소의 ${ratio} 이상이면 알림이 옵니다.`,
+    catchesScale: (scale: string) =>
+      `${scale} 길이의 거래대금이 평소보다 크게 늘어나면 알림이 옵니다.`,
     ratePerCoin: (rate: string) => `${rate} 정도 울립니다`,
     footnote:
-      "알림은 유동성이 몰린 것을 알릴 뿐, 가격이 오를지 내릴지는 알려주지 않습니다. 평소는 같은 길이의 직전 봉들의 중앙값이고, 차트에서 직접 확인할 수 있는 숫자입니다. 짧은 봉일수록 원래 크게 튀기 때문에 필요한 배수도 높습니다.",
+      "알림은 유동성이 몰린 것을 알릴 뿐, 가격이 오를지 내릴지는 알려주지 않습니다. 기준은 같은 길이의 직전 봉들의 중앙값이고, 차트에서 직접 확인할 수 있는 숫자입니다. 짧은 봉일수록 원래 크게 튀기 때문에 더 엄격한 기준이 적용됩니다.",
   },
 
   rate: {
@@ -203,6 +198,8 @@ const ko = {
     submitSignup: "가입하기",
     subtitle: "채널을 계정에 저장하고 어디서든 이어서 씁니다.",
     close: "닫기",
+    continueWithGoogle: "구글로 계속하기",
+    orDivider: "또는",
     email: "이메일",
     password: "비밀번호",
     noticeTop:
@@ -243,8 +240,23 @@ const ko = {
       invalid_email: "이메일 형식이 올바르지 않습니다.",
       email_not_confirmed: "메일의 확인 링크를 먼저 눌러주세요.",
       rate_limited: "시도가 너무 잦습니다. 잠시 후 다시 해주세요.",
+      provider_not_enabled: "구글 로그인이 아직 연결되지 않았습니다.",
       unknown: "처리하지 못했습니다. 잠시 후 다시 해주세요.",
     },
+  },
+
+  myPage: {
+    title: "마이페이지",
+    saveEmail: "저장",
+    emailChangeSent:
+      "확인 메일을 보냈습니다. 새 주소에서 링크를 눌러야 이메일이 바뀝니다.",
+    dangerZone: "위험 구역",
+    deleteAccount: "계정 삭제",
+    deleteAccountBody:
+      "계정을 삭제하면 채널, 알림 기록, 푸시 구독까지 전부 지워지고 되돌릴 수 없습니다.",
+    deleteConfirmTitle: "정말 계정을 삭제할까요?",
+    deleteConfirmBody:
+      "채널과 알림 기록을 포함해 모든 데이터가 즉시 삭제됩니다. 이 작업은 되돌릴 수 없습니다.",
   },
 
   footer: {
@@ -319,7 +331,6 @@ const en: Dictionary = {
     minutesAgo: (n: number) => `${n} min ago`,
     hoursAgo: (n: number) => (n === 1 ? "1 hour ago" : `${n} hours ago`),
     daysAgo: (n: number) => (n === 1 ? "1 day ago" : `${n} days ago`),
-    ratio: (times: string) => `${times}x normal`,
     volume: (amount: string) => `Volume ${amount}`,
     remove: "Remove this record",
     emptyTitle: "No alerts yet",
@@ -348,8 +359,7 @@ const en: Dictionary = {
     sensitivity: "Sensitivity",
     perDay: "Est. alerts/day",
     catches: "Catches",
-    catchesFrom: (frame: string, ratio: number) =>
-      `${frame} turnover at ${ratio}x normal`,
+    catchesFrom: (frame: string) => `${frame} turnover spikes`,
     delivery: "Delivery",
     history: "History",
     edit: "Edit",
@@ -390,15 +400,14 @@ const en: Dictionary = {
 
   slider: {
     label: "Sensitivity",
-    ratioSuffix: "x",
     quiet: "Quiet",
     frequent: "Frequent",
     summaryTitle: "At this setting",
-    catchesScale: (scale: string, ratio: string) =>
-      `Catches ${scale} spikes — alerts when that much turnover reaches ${ratio} of normal.`,
+    catchesScale: (scale: string) =>
+      `Alerts when ${scale} turnover rises well above normal.`,
     ratePerCoin: (rate: string) => `Alerts about ${rate}`,
     footnote:
-      "An alert tells you liquidity gathered — not whether the price is about to rise or fall. \"Normal\" is the median of the preceding bars of the same length, a number you can check on the chart yourself. Shorter bars swing more on their own, so they need a higher multiple.",
+      "An alert tells you liquidity gathered — not whether the price is about to rise or fall. \"Normal\" is the median of the preceding bars of the same length, a number you can check on the chart yourself. Shorter bars swing more on their own, so a stricter bar applies.",
   },
 
   rate: {
@@ -458,6 +467,8 @@ const en: Dictionary = {
     submitSignup: "Create account",
     subtitle: "Save channels to your account and pick up anywhere.",
     close: "Close",
+    continueWithGoogle: "Continue with Google",
+    orDivider: "or",
     email: "Email",
     password: "Password",
     noticeTop:
@@ -497,8 +508,23 @@ const en: Dictionary = {
       invalid_email: "That email address is not valid.",
       email_not_confirmed: "Follow the confirmation link in your email first.",
       rate_limited: "Too many attempts. Please wait a moment and try again.",
+      provider_not_enabled: "Google sign-in isn't connected yet.",
       unknown: "Something went wrong. Please try again shortly.",
     },
+  },
+
+  myPage: {
+    title: "My page",
+    saveEmail: "Save",
+    emailChangeSent:
+      "Check your inbox — follow the link at the new address to finish changing it.",
+    dangerZone: "Danger zone",
+    deleteAccount: "Delete account",
+    deleteAccountBody:
+      "Deleting your account removes your channels, alert history, and push subscriptions for good. This cannot be undone.",
+    deleteConfirmTitle: "Delete your account?",
+    deleteConfirmBody:
+      "All your data — channels and alert history included — is deleted immediately. This cannot be undone.",
   },
 
   footer: {

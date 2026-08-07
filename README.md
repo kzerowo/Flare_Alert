@@ -1,123 +1,37 @@
 # Flare Alert
 
-암호화폐 거래량 급등 알림 서비스.
+코인 거래량 급등 알림 서비스. 관심 코인을 채널로 등록하면, 최근 거래대금이
+평소보다 비정상적으로 늘어날 때 알림을 보낸다.
 
-사용자는 **채널**을 만들고, 채널에 감시할 코인들과 민감도를 넣는다.
-채널 안의 코인에서 이례적인 거래량 급등이 포착되면 알림이 울린다.
+## 배포 주소
 
-채널 안에 규모가 전혀 다른 코인을 섞어도 민감도 하나면 된다. 임계치가
-종목별 평소 거래량 분포에 맞춰 자동 보정되기 때문이다. "평균 대비 몇 배"를
-코인마다 손으로 맞출 필요가 없다.
+https://flare-alert-web-eight.vercel.app/
 
-알림은 브라우저(탭이 열려 있을 때)와 텔레그램으로 나간다. 채널마다 어느
-수단을 쓸지 고른다.
+## 서버 (detector)
 
-## 왜 만드는가
+실시간 감지 프로세스는 현재 로컬 PC에서 상시 실행 중이다.
+추후 Oracle Cloud로 이전 예정 (`apps/detector/deploy/`에 systemd 배포 스크립트 준비됨).
 
-기존 알림 서비스는 대부분 고정 배수를 쓴다. "평균 대비 3배"는
+## DB
 
-- 평소 조용한 코인에서는 거의 안 울리고
-- 원래 변동이 큰 코인에서는 하루 종일 울린다
+Supabase 사용 (PostgreSQL). 채널, 알림 기록, 푸시 구독 정보 등을 저장한다.
 
-결국 종목마다 사람이 값을 다시 맞춰야 한다. Flare Alert는 배수 대신
-**퍼센타일**을 쓴다. "상위 5%"는 종목이 달라져도 울리는 빈도가 예측 가능하다.
+## 유동성 판별 알고리즘 (간략)
 
-## 구조
+- 대상: 바이낸스 USD-M 선물(무기한)
+- 최근 N초간 거래대금을 직전 같은 길이의 구간들의 **중앙값**과 비교
+- **비율이 기준 배수(예: 3.5배) 이상이면 알림** — "평균 대비 몇 배"를 사용자가
+  차트로 직접 확인할 수 있는 값
+- 민감도 슬라이더(1~100)로 감시 구간 길이(1분~4시간)와 배수를 함께 조절
 
-```
-apps/web        Next.js 15 (App Router) + TypeScript + Tailwind v4
-                설정 UI와 알림 히스토리 대시보드. Vercel 배포.
+## 브라우저 알림 구조
 
-apps/detector   Node.js + TypeScript
-                바이낸스 WebSocket 상시 연결, 급등 감지, 텔레그램 발송.
-                상시 프로세스라 서버리스 불가. Railway / Fly.io 도쿄 리전.
+- Web Push(RFC 8291 + VAPID) 사용 — 브라우저 탭을 닫아도 알림 수신 가능
+- detector가 감지 → Supabase에 기록 + 구독된 브라우저에 푸시 발송
+- 탭이 열려 있으면 Realtime 구독으로도 즉시 반영 (알림 히스토리 화면)
 
-apps/backtest   파라미터 확정용 오프라인 도구. 배포되지 않는다.
-                바이낸스 공개 덤프를 리플레이해서 알림 빈도를 측정한다.
+## 나에게 맞는 유동성 테스트
 
-packages/core   두 앱이 공유하는 타입 정의, 상수, 감지 알고리즘.
-
-docs            기획 문서.
-```
-
-## 문서
-
-| 문서 | 내용 |
-|---|---|
-| [docs/algorithm.md](docs/algorithm.md) | 감지 알고리즘 설계와 미확정 파라미터 |
-| [docs/architecture.md](docs/architecture.md) | 데이터 흐름과 배포 구성 |
-| [docs/research.md](docs/research.md) | 경쟁 서비스 조사와 남은 빈틈 |
-| [docs/decisions.md](docs/decisions.md) | 주요 의사결정과 기각된 대안 |
-
-## 시작하기
-
-필요한 것: Node.js 20 이상, pnpm.
-
-```bash
-pnpm install
-
-# 환경변수 준비
-cp .env.example .env
-
-# 공유 패키지 빌드 후 web 개발 서버
-pnpm dev:web
-
-# 공유 패키지 빌드 후 detector 실행
-pnpm dev:detector
-```
-
-`packages/core`는 dist를 통해 소비되므로, 두 앱을 직접 실행하기 전에
-`pnpm --filter @flare-alert/core build`가 한 번은 돌아야 한다.
-위 `dev:*` 스크립트는 이 과정을 포함한다.
-
-## 스크립트
-
-| 명령 | 설명 |
-|---|---|
-| `pnpm build` | 전체 워크스페이스 빌드 (의존 순서대로) |
-| `pnpm test` | 전체 테스트 |
-| `pnpm typecheck` | 전체 타입 검사 |
-| `pnpm clean` | 빌드 산출물 삭제 |
-
-## 백테스트
-
-```bash
-# 바이낸스 공개 덤프 내려받기 (6종목 × 3개월, 약 670MB)
-pnpm --filter @flare-alert/backtest fetch
-
-# 리플레이용 이진 형식으로 변환
-pnpm --filter @flare-alert/backtest prepare:data
-
-# 교차 추출 + 파라미터 스윕
-pnpm --filter @flare-alert/backtest build
-pnpm --filter @flare-alert/backtest start
-```
-
-받은 데이터와 중간 결과는 `data/`에 쌓이고 커밋되지 않는다.
-교차 추출 결과는 캐시되므로 두 번째 실행부터는 스윕만 몇 초 만에 돈다.
-
-## 현재 상태
-
-### 되어 있는 것
-
-- 모노레포 골격, 타입 정의, 기획 문서
-- 감지 알고리즘의 통계 부분: 중앙값/MAD 기준선, 점수 S, 퍼센타일 추정기,
-  시간 감쇠 쿨다운 (`packages/core`, 테스트 43개)
-- 백테스트 하니스와 1차 결과
-
-### 안 되어 있는 것
-
-- 바이낸스 WebSocket 연결과 1초 버킷 집계 (`apps/detector`는 골격만)
-- 텔레그램 발송
-- 설정 UI와 알림 히스토리 (`apps/web`은 랜딩 페이지만)
-- 상태 저장소
-
-### 파라미터
-
-1차 백테스트로 병합창, 쿨다운 지속시간, 기본 민감도를 정했다.
-나머지 7개는 아직 임시값이며 `packages/core/src/constants.ts`에
-`TODO(backtest)` 주석이 달려 있다. 현황은
-[docs/algorithm.md](docs/algorithm.md#파라미터-현황) 참고.
-
-가장 시급한 것은 최소 거래대금 하한이다. 소형 종목의 결과를 사실상
-혼자 결정하고 있는데 아직 근거 없이 잡은 값이다.
+실제 과거 거래량 차트(막대 그래프)를 보여주고, 사용자가 "이 정도면 알림
+받고 싶다" 싶은 막대를 직접 클릭하게 한 뒤, 그 기준을 역산해서 슬라이더
+민감도 값을 추천해주는 기능. 설정 화면에서 채널 생성 시 이용 가능.

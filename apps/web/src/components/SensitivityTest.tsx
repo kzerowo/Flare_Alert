@@ -311,13 +311,10 @@ export function SensitivityTest({ symbol, onApply, onClose }: Props) {
                 {t.test.resultTitle}
               </p>
               <p className="mt-2 font-mono text-display text-primary">
-                {fit.level}
+                {fit.level}%
               </p>
               <p className="mt-2 text-body">
-                {t.slider.catchesScale(
-                  t.frameScale[fit.timeframe],
-                  `${Math.round(fit.ratio * 10) / 10}${t.slider.ratioSuffix}`,
-                )}
+                {t.slider.catchesScale(t.frameScale[fit.timeframe])}
               </p>
               <p className="mt-1 text-body-sm text-on-surface-variant">
                 {t.slider.ratePerCoin(formatAlertsPerDay(t, fit.alertsPerDay))}

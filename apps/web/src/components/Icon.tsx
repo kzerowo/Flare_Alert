@@ -23,7 +23,8 @@ export type IconName =
   | "mail"
   | "lock"
   | "arrow-right"
-  | "bell";
+  | "bell"
+  | "user";
 
 const PATHS: Record<IconName, React.ReactNode> = {
   plus: <path d="M12 5v14M5 12h14" />,
@@ -83,6 +84,12 @@ const PATHS: Record<IconName, React.ReactNode> = {
     <>
       <path d="M18 9a6 6 0 0 0-12 0c0 6-3 7-3 7h18s-3-1-3-7" />
       <path d="M13.7 20a2 2 0 0 1-3.4 0" />
+    </>
+  ),
+  user: (
+    <>
+      <circle cx="12" cy="8" r="4" />
+      <path d="M4 20c0-4.4 3.6-7 8-7s8 2.6 8 7" />
     </>
   ),
 };

@@ -39,13 +39,6 @@ function toTrackPercent(level: number): number {
   );
 }
 
-/** 배수를 "3.6배" / "3.6x"로. 소수점은 필요할 때만 붙인다. */
-function formatRatio(ratio: number, suffix: string): string {
-  const rounded = Math.round(ratio * 10) / 10;
-  const text = Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
-  return `${text}${suffix}`;
-}
-
 interface Props {
   /** 채널의 민감도 위치(1~100). 저장되는 값 그대로다. */
   value: number;
@@ -63,7 +56,7 @@ export function SensitivitySlider({ value, onChange }: Props) {
           {t.slider.label}
         </label>
         <span className="font-mono text-headline text-primary">
-          {t.frameScale[current.timeframe]}
+          {value}%
         </span>
       </div>
 
@@ -123,10 +116,7 @@ export function SensitivitySlider({ value, onChange }: Props) {
         <div className="space-y-1">
           <h4 className="text-title text-primary">{t.slider.summaryTitle}</h4>
           <p className="text-body-sm">
-            {t.slider.catchesScale(
-              t.frameScale[current.timeframe],
-              formatRatio(current.ratio, t.slider.ratioSuffix),
-            )}
+            {t.slider.catchesScale(t.frameScale[current.timeframe])}
           </p>
           <p className="text-body-sm text-on-surface-variant">
             {t.slider.ratePerCoin(formatAlertsPerDay(t, current.alertsPerDay))}

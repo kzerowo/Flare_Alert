@@ -30,6 +30,7 @@ export type AuthProblem =
   | "invalid_email"
   | "email_not_confirmed"
   | "rate_limited"
+  | "provider_not_enabled"
   | "unknown";
 
 export interface AuthResult {
@@ -47,11 +48,20 @@ interface Auth {
   available: boolean;
   signIn: (email: string, password: string) => Promise<AuthResult>;
   signUp: (email: string, password: string) => Promise<AuthResult>;
+  /** 구글로 이동한다. 성공하면 이 페이지로 돌아오지 않는다 — 실패했을 때만 결과가 의미 있다. */
+  signInWithGoogle: () => Promise<AuthResult>;
   signOut: () => Promise<void>;
   /** 재설정 링크를 메일로 보낸다. */
   sendPasswordReset: (email: string) => Promise<AuthResult>;
   /** 재설정 링크로 들어온 세션에서 새 비밀번호를 저장한다. */
   updatePassword: (password: string) => Promise<AuthResult>;
+  /** 새 주소로 확인 메일을 보낸다. 실제 전환은 사용자가 그 메일을 눌러야 끝난다. */
+  updateEmail: (email: string) => Promise<AuthResult>;
+  /**
+   * 본인 계정을 지운다. channels/alerts/push_subscriptions까지 DB에서
+   * CASCADE로 같이 지워진다(0005_delete_own_account.sql).
+   */
+  deleteAccount: () => Promise<AuthResult>;
   /**
    * 재설정 링크를 타고 들어왔는지.
    *
@@ -89,6 +99,9 @@ function classify(message: string, status: number | undefined): AuthProblem {
   }
   if (text.includes("not confirmed")) {
     return "email_not_confirmed";
+  }
+  if (text.includes("provider is not enabled") || text.includes("unsupported provider")) {
+    return "provider_not_enabled";
   }
   if (status === 429) {
     return "rate_limited";
@@ -179,6 +192,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [client],
   );
 
+  const signInWithGoogle = useCallback(async (): Promise<AuthResult> => {
+    if (client === null) {
+      return { ok: false, problem: "unavailable" };
+    }
+
+    const { error } = await client.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        // sendPasswordReset과 같은 이유. 안 주면 Supabase의 Site URL로
+        // 가는데, 로컬 개발 중에는 그게 배포 주소다.
+        redirectTo: window.location.origin,
+      },
+    });
+
+    if (error !== null) {
+      return { ok: false, problem: classify(error.message, error.status) };
+    }
+    // 성공하면 브라우저가 구글로 떠난다. 여기로 리턴이 오는 건 이미 실패다.
+    return { ok: true };
+  }, [client]);
+
   const sendPasswordReset = useCallback(
     async (email: string): Promise<AuthResult> => {
       if (client === null) {
@@ -221,11 +255,44 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setRecovering(false);
   }, []);
 
+  const updateEmail = useCallback(
+    async (email: string): Promise<AuthResult> => {
+      if (client === null) {
+        return { ok: false, problem: "unavailable" };
+      }
+
+      const { error } = await client.auth.updateUser({ email });
+
+      if (error !== null) {
+        return { ok: false, problem: classify(error.message, error.status) };
+      }
+      return { ok: true };
+    },
+    [client],
+  );
+
   const signOut = useCallback(async () => {
     setRecovering(false);
     if (client !== null) {
       await client.auth.signOut();
     }
+  }, [client]);
+
+  const deleteAccount = useCallback(async (): Promise<AuthResult> => {
+    if (client === null) {
+      return { ok: false, problem: "unavailable" };
+    }
+
+    const { error } = await client.rpc("delete_own_account");
+
+    if (error !== null) {
+      return { ok: false, problem: classify(error.message, undefined) };
+    }
+
+    // auth.users 행이 없어졌으니 남은 로컬 세션도 정리한다.
+    setRecovering(false);
+    await client.auth.signOut();
+    return { ok: true };
   }, [client]);
 
   const value = useMemo(
@@ -235,9 +302,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       available: client !== null,
       signIn,
       signUp,
+      signInWithGoogle,
       signOut,
       sendPasswordReset,
       updatePassword,
+      updateEmail,
+      deleteAccount,
       recovering,
       endRecovery,
     }),
@@ -247,9 +317,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       client,
       signIn,
       signUp,
+      signInWithGoogle,
       signOut,
       sendPasswordReset,
       updatePassword,
+      updateEmail,
+      deleteAccount,
       recovering,
       endRecovery,
     ],

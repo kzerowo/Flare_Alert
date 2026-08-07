@@ -19,6 +19,7 @@ import { AlertHistory } from "./AlertHistory";
 import { AuthDialog } from "./AuthDialog";
 import { ChannelCard } from "./ChannelCard";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { MyPageDialog } from "./MyPageDialog";
 import { ResetPasswordDialog } from "./ResetPasswordDialog";
 import { ChannelForm } from "./ChannelForm";
 import { Icon } from "./Icon";
@@ -86,6 +87,7 @@ export function MainApp() {
   const [view, setView] = useState<View>({ kind: "list" });
   const [auth, setAuth] = useState<"login" | "signup" | null>(null);
   const [pendingRemove, setPendingRemove] = useState<Channel | null>(null);
+  const [myPageOpen, setMyPageOpen] = useState(false);
 
   const signedIn = user !== null;
   const push = usePush(signedIn);
@@ -119,9 +121,21 @@ export function MainApp() {
 
             {signedIn ? (
               <>
-                <span className="hidden max-w-[14rem] truncate px-2 text-body-sm text-on-surface-variant sm:block">
+                <button
+                  type="button"
+                  onClick={() => setMyPageOpen(true)}
+                  aria-label={t.myPage.title}
+                  className="rounded-lg p-2 text-on-surface-variant transition-colors hover:text-primary sm:hidden"
+                >
+                  <Icon name="user" size={18} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMyPageOpen(true)}
+                  className="hidden max-w-[14rem] truncate px-2 text-body-sm text-on-surface-variant transition-colors hover:text-primary sm:block"
+                >
                   {user.email}
-                </span>
+                </button>
                 <button
                   type="button"
                   onClick={() => void signOut()}
@@ -318,6 +332,10 @@ export function MainApp() {
       {auth === null ? null : (
         <AuthDialog mode={auth} onClose={() => setAuth(null)} />
       )}
+
+      {myPageOpen ? (
+        <MyPageDialog onClose={() => setMyPageOpen(false)} />
+      ) : null}
 
       {/* 재설정 링크로 들어온 경우. 다른 창보다 우선한다. */}
       {recovering ? <ResetPasswordDialog /> : null}

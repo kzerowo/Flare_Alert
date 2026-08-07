@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-_Last updated: 2026-08-05 13:30_
+_Last updated: 2026-08-07 22:20_
 
 ## Project Overview
 
@@ -119,8 +119,9 @@ All actively traded on Binance USDT. Coin icons live in `apps/web/public/coins/`
 │       │   ├── ChannelCard.tsx            # Edit/delete/toggle actions; history button
 │       │   ├── ChannelForm.tsx            # Create/edit UI: single-coin radio group + sensitivity slider
 │       │   ├── CoinIcon.tsx               # Coin symbol → SVG icon or fallback color dot
-│       │   ├── AuthDialog.tsx             # Login/signup against Supabase Auth, incl. forgot-password
+│       │   ├── AuthDialog.tsx             # Login/signup against Supabase Auth, incl. forgot-password; Google sign-in
 │       │   ├── ResetPasswordDialog.tsx    # Password reset via PASSWORD_RECOVERY event
+│       │   ├── MyPageDialog.tsx           # Account settings and account deletion
 │       │   ├── SensitivitySlider.tsx      # Interactive sensitivity control with frame-standard tick marks
 │       │   ├── SensitivityTest.tsx        # Label real charts to find your own sensitivity level
 │       │   ├── VolumeChart.tsx            # Clickable turnover bars (volume only, linear, no baseline)
@@ -155,7 +156,8 @@ All actively traded on Binance USDT. Coin icons live in `apps/web/public/coins/`
 │   ├── 0001_init.sql            # profiles / channels / channel_symbols + RLS
 │   ├── 0002_alerts_and_push.sql # push_subscriptions / alerts tables + RLS, drops Telegram
 │   ├── 0003_channel_scale.sql   # channels.sensitivity (percentile) → channels.scale (bar length)
-│   └── 0004_channel_sensitivity_level.sql  # channels.scale → channels.sensitivity_level (1~100)
+│   ├── 0004_channel_sensitivity_level.sql  # channels.scale → channels.sensitivity_level (1~100)
+│   └── 0005_delete_own_account.sql  # Adds account deletion RPC; deletion cascades to channels/alerts/subscriptions
 ├── apps/detector/deploy/        # systemd unit + setup.sh for Oracle Cloud deployment
 ├── docs/                        # Korean planning docs (algorithm/architecture/research/decisions/deploy)
 ├── data/                        # Backtest data — gitignored, ~3.4GB
@@ -320,7 +322,7 @@ Still `TODO(backtest)` in `constants.ts`: `LOOKBACK_WINDOW_COUNT`, `MIN_QUOTE_VO
 pnpm install
 cp .env.example .env
 
-pnpm dev:web                # builds core, then next dev on :3000
+pnpm dev:web                # builds core, then next dev on :3010 (pinned — see apps/web/package.json)
 pnpm dev:detector           # builds core, then runs detector (live Binance)
 
 pnpm test                   # 123 tests (112 core + 11 detector)
@@ -422,7 +424,7 @@ Next.js reads `apps/web/.env.local`, not the root `.env`. There is no Binance AP
 
 Not yet covered: frame merging (lives in backtest), the web app.
 
-**Typecheck does not catch server/client boundary violations.** Calling a `"use client"` export from a server component compiles fine and fails at request time with a 500. After touching `layout.tsx` or anything it imports, load the page (`curl -s -o /dev/null -w "%{http_code}" http://localhost:3000`).
+**Typecheck does not catch server/client boundary violations.** Calling a `"use client"` export from a server component compiles fine and fails at request time with a 500. After touching `layout.tsx` or anything it imports, load the page (`curl -s -o /dev/null -w "%{http_code}" http://localhost:3010`).
 
 ## Turnover Floor (`MIN_QUOTE_VOLUME`) — measured, unresolved
 
@@ -786,8 +788,43 @@ Field 7 (quote volume) is used, not field 5 — the latter is coin count, not co
 4b. **Scale-driven slider** — ✅ implemented (2026-08-03). Slider axis swapped from ratio to timeframe; `SENSITIVITY_SCALES` table, `scaleAt/scaleIndexOf/scaleRatio/scaleAlertsPerDay()` exports, migration SQL 0003_channel_scale. Open: quiet-hour label still needed to settle median-vs-MA baseline question.
 4c. **Continuous 1–100 slider** — ✅ implemented (2026-08-03). See § Continuous Sensitivity. `SCALE_RATE_CURVES` (dense measured curves), `sensitivityAt()`/`levelForScale()`, `Channel.sensitivityLevel`, migration 0004, `backtest start dense`. **Open: migration 0004 is not yet applied to the live database.**
 5. **Storage** — ✅ schema, auth, channel persistence, push subscriptions, alert logging, password reset. Open: alert retention policy (table grows unbounded).
-6. **Web UI** — ✅ MainApp, ChannelCard, ChannelForm, CoinIcon, AuthDialog + password reset, Web Push subscription, service worker, ko/en toggle, alert history view (all complete).
+6. **Web UI** — ✅ MainApp, ChannelCard, ChannelForm, CoinIcon, AuthDialog + password reset + Google sign-in, MyPageDialog + account deletion, Web Push subscription, service worker, ko/en toggle, alert history view (all complete).
 7. **Deployment** — Vercel connected and building. `apps/detector/deploy/` (systemd unit + `setup.sh`) ready for Oracle Cloud; needs the user to provision a VM and run it. `NEXT_PUBLIC_VAPID_PUBLIC_KEY` still needs to be added to Vercel's env vars for push to work on the deployed site.
 8. **Backtest tools** — ✅ `event-scale.ts` (scale markers + channel rate curve), `quality.ts`, `hour-matched.ts`, `turnover.ts`, `label-fit.ts` (label-based scoring) all in place.
 
 Deferred until the web app is complete: mobile app development (React Native/Expo, iOS + Android).
+
+## UI Simplification (in progress 2026-08-07)
+
+**The web UI is being simplified to de-emphasize ratios and focus on the sensitivity percentage (1–100) axis.**
+
+The continuous 1–100 slider already maps ratios to levels; showing both on every screen added cognitive load without adding information. Changes underway:
+
+- **AlertHistory**: removed `ratio(alert.ratioToMedian)` display from alert items. Alerts still log the ratio to Supabase for analytics, but it's no longer shown to users.
+- **ChannelCard**: replaced "catches from frame at ratio×normal" with simpler "catches frame turnover spikes"; displays the sensitivity percentage instead of the frame name in the summary.
+- **SensitivitySlider**: removed `formatRatio()` function and related ratio displays; changed summary text from `catchesScale(frame, ratio)` to `catchesScale(frame)` alone.
+- **SensitivityTest**: result now displays as `${level}%` instead of `${level}` (the level value is already 1–100; formatting makes it explicit).
+- **i18n translations**: removed `alerts.ratio` field; `card.catchesFrom` and `slider.catchesScale` simplified to omit ratio parameter; removed `slider.ratioSuffix`.
+
+The core detector, constants, and sensitivity calculations are unchanged. This is purely a presentation simplification, making the UI easier to understand for users who don't need to know about underlying multipliers.
+
+## Account Management (completed 2026-08-07)
+
+**MyPageDialog** provides account settings and self-service deletion:
+
+- **Email change**: users can update their email address; Supabase sends a confirmation link to the new address.
+- **Account deletion**: users can permanently delete their account via a "danger zone" button. Deletion is irreversible and cascades to:
+  - All channels (child rows auto-delete via foreign key)
+  - All alerts (child rows auto-delete via foreign key)
+  - All push subscriptions (child rows auto-delete via foreign key)
+  - The profile row itself
+
+The deletion flow includes two confirmation steps (initial button + modal re-confirmation) to prevent accidental data loss. `supabase/migrations/0005_delete_own_account.sql` creates a database-level RPC function that wraps the cascade delete in a single transaction.
+
+**Google sign-in** support was added to `AuthDialog.tsx`:
+
+- The button always renders — unlike the earlier deliberate omission (see the file's own history), this one is meant to be wired up immediately, so it's safe to ship ahead of the Supabase-side config.
+- `auth.tsx`'s `signInWithGoogle()` calls `signInWithOAuth({ provider: "google" })`; on failure (most likely because the provider isn't enabled yet), `classify()` maps Supabase's "provider is not enabled" message to a new `provider_not_enabled` problem so the button fails with a real message instead of a silent no-op.
+- `i18n.tsx` adds `auth.continueWithGoogle` and `auth.orDivider` strings (ko/en).
+
+Both features are opt-in (Google sign-in requires Supabase setup; account deletion is purely user-initiated) and do not affect the detector or sensitivity calculations.
