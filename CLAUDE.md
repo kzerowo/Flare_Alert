@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-_Last updated: 2026-08-15 00:21_
+_Last updated: 2026-08-15 00:23_
 
 ## Project Overview
 
@@ -779,6 +779,36 @@ Windows are non-overlapping by construction — the history range is split into 
 
 Field 7 (quote volume) is used, not field 5 — the latter is coin count, not comparable across symbols and not what the algorithm reads.
 
+## Claude Code Configuration
+
+**`.claude/settings.local.json`** — project-level permission allowlist for repeated read-only operations, reducing permission prompts:
+
+```json
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s -o /dev/null -w \"web:3000 -> %{http_code}\\n\" http://localhost:3000)",
+      "Bash(curl -s -o /dev/null -w \"detector:8080/health -> %{http_code}\\n\" http://localhost:8080/health)",
+      "Bash(pnpm dev:detector)",
+      "Bash(node --experimental-strip-types -e \"console.log('ok')\")",
+      "Bash(node -e \"console.log(require('module').findSourceMap)\")",
+      "Bash(node --help)"
+    ]
+  }
+}
+```
+
+**`.claude/skills/dev/SKILL.md`** — custom skill documenting the two-process development setup. This project runs web (`Next.js` on 3010) and detector (`Node.js` on 8080) as independent processes. The skill explains:
+
+- Why the processes don't start each other (root `pnpm dev` only starts web)
+- How to launch both via PowerShell terminal windows with correct working directories (using `-WorkingDirectory` not embedded `cd` to avoid quoting issues on paths with spaces)
+- Build prerequisites if `apps/detector/dist/` is missing
+- Health check URLs and credential readiness signals
+
+Invoked when the user asks to start dev, run everything, or similar ("개발 서버 켜줘", "detector 켜줘"). Avoids re-explaining the setup across sessions.
+
+**`WEEKLY.md`** — high-level summary of the week's work, tracking progress across deployment readiness, web UI iteration, and detector verification. Kept at the root for visibility and updated once per planning cycle.
+
 ## Known Gaps & Next Steps
 
 1. **Alert quality** — ✅ measured, hour-of-day confound controlled (2.08x corrected). Open: confirmation on 2–3 more symbols; hit-rate targets for a product callout.
@@ -828,3 +858,9 @@ The deletion flow includes two confirmation steps (initial button + modal re-con
 - `i18n.tsx` adds `auth.continueWithGoogle` and `auth.orDivider` strings (ko/en).
 
 Both features are opt-in (Google sign-in requires Supabase setup; account deletion is purely user-initiated) and do not affect the detector or sensitivity calculations.
+
+## Signup Email Verification (fixed 2026-08-15)
+
+**Duplicate email handling**: When email confirmation is enabled, Supabase does not return an error for already-registered emails (to prevent email enumeration attacks). Instead, it returns `identities: []` (empty array) while reporting success. Previously, the signup flow did not check this signal, so users would be shown "check your email" even though no confirmation mail would ever arrive.
+
+The fix checks `data.user.identities?.length === 0` in `signUp()` and returns `{ ok: false, problem: "email_taken" }` to show the appropriate error message. This applies only when email verification is active; without it, Supabase does return a proper error.
