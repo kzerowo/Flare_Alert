@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-_Last updated: 2026-08-07 22:20_
+_Last updated: 2026-08-15 00:21_
 
 ## Project Overview
 
@@ -789,7 +789,7 @@ Field 7 (quote volume) is used, not field 5 — the latter is coin count, not co
 4c. **Continuous 1–100 slider** — ✅ implemented (2026-08-03). See § Continuous Sensitivity. `SCALE_RATE_CURVES` (dense measured curves), `sensitivityAt()`/`levelForScale()`, `Channel.sensitivityLevel`, migration 0004, `backtest start dense`. **Open: migration 0004 is not yet applied to the live database.**
 5. **Storage** — ✅ schema, auth, channel persistence, push subscriptions, alert logging, password reset. Open: alert retention policy (table grows unbounded).
 6. **Web UI** — ✅ MainApp, ChannelCard, ChannelForm, CoinIcon, AuthDialog + password reset + Google sign-in, MyPageDialog + account deletion, Web Push subscription, service worker, ko/en toggle, alert history view (all complete).
-7. **Deployment** — Vercel connected and building. `apps/detector/deploy/` (systemd unit + `setup.sh`) ready for Oracle Cloud; needs the user to provision a VM and run it. `NEXT_PUBLIC_VAPID_PUBLIC_KEY` still needs to be added to Vercel's env vars for push to work on the deployed site.
+7. **Deployment** — Vercel connected and building. `apps/detector/deploy/` (systemd unit + `setup.sh`) ready for Oracle Cloud; needs the user to provision a VM and run it. `setup.sh` handles low-memory servers by auto-creating a 2GB swap file if the system has <2GB RAM and <1GB swap, and restricts dependency installation to detector + core only (excluding web/backtest). `NEXT_PUBLIC_VAPID_PUBLIC_KEY` still needs to be added to Vercel's env vars for push to work on the deployed site.
 8. **Backtest tools** — ✅ `event-scale.ts` (scale markers + channel rate curve), `quality.ts`, `hour-matched.ts`, `turnover.ts`, `label-fit.ts` (label-based scoring) all in place.
 
 Deferred until the web app is complete: mobile app development (React Native/Expo, iOS + Android).

@@ -46,6 +46,32 @@ if ! command -v pnpm >/dev/null 2>&1; then
 fi
 
 # ---------------------------------------------------------------------------
+# 스왑
+#
+# 무료 티어의 x86 마이크로(VM.Standard.E2.1.Micro)는 메모리가 1GB뿐이고
+# 스왑이 없다. detector 실행은 종목당 0.5MB로 충분하지만 설치와 tsc 빌드가
+# 그 한도를 넘겨 OOM으로 죽는다. 빌드 한 번을 위해 스왑을 깔아 둔다.
+# ---------------------------------------------------------------------------
+log "메모리와 스왑 확인"
+MEM_MB=$(free -m | awk '/^Mem:/ {print $2}')
+SWAP_MB=$(free -m | awk '/^Swap:/ {print $2}')
+echo "메모리 ${MEM_MB}MB, 스왑 ${SWAP_MB}MB"
+
+if [[ "$MEM_MB" -lt 2048 && "$SWAP_MB" -lt 1024 ]]; then
+  if [[ ! -f /swapfile ]]; then
+    echo "메모리가 부족합니다. 2GB 스왑을 만듭니다"
+    fallocate -l 2G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=2048
+    chmod 600 /swapfile
+    mkswap /swapfile
+    swapon /swapfile
+    # 재부팅 후에도 남게 한다. 이미 있으면 중복으로 넣지 않는다.
+    grep -q '^/swapfile ' /etc/fstab || echo '/swapfile none swap sw 0 0' >>/etc/fstab
+  else
+    swapon /swapfile 2>/dev/null || true
+  fi
+fi
+
+# ---------------------------------------------------------------------------
 # 전용 계정
 #
 # root로 돌리지 않는다. detector는 인터넷에서 데이터를 받아 파싱하므로
@@ -64,7 +90,10 @@ fi
 # ---------------------------------------------------------------------------
 log "의존성 설치와 빌드"
 cd "$APP_DIR"
-pnpm install --frozen-lockfile
+# detector와 그 의존성(core)만 설치한다. 이 서버는 web도 backtest도 실행하지
+# 않으므로 Next.js/React를 받을 이유가 없다 — 메모리가 1GB인 무료 티어에서는
+# 그 차이가 빌드 성공과 OOM을 가른다.
+pnpm install --frozen-lockfile --filter "@flare-alert/detector..."
 pnpm --filter @flare-alert/core build
 pnpm --filter @flare-alert/detector build
 
