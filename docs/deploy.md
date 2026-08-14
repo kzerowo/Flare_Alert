@@ -156,8 +156,24 @@ detector는 가볍다 — 종목당 메모리 약 0.5MB(13종목이면 6MB 남�
   (무료 한도는 4 OCPU / 24GB이고 인스턴스를 나눠 쓸 수 있다)
 - SSH 키를 등록하고 공인 IP를 받는다
 
+**네트워크는 인스턴스 생성 폼 안에서 만들지 않는다.** 거기 딸린 간이
+생성기는 public subnet을 만들지 못해서, 공인 IP 할당이 끝까지 비활성으로
+남는다. Networking > Virtual Cloud Networks에서 **Start VCN Wizard >
+Create VCN with Internet Connectivity**로 먼저 만들고, 인스턴스 폼에서는
+그것을 골라 쓴다. 마법사는 public subnet과 Internet Gateway까지 함께 만든다.
+
 Ampere A1은 지역에 따라 재고가 없어 생성이 실패할 때가 있다. "Out of
 capacity"가 나오면 다른 가용 도메인을 고르거나 시간을 두고 다시 시도한다.
+**가용 도메인이 하나뿐인 리전(서울·춘천·도쿄 등)에서는 물러설 곳이 없다.**
+이때는 `VM.Standard.E2.1.Micro`(x86, 1 OCPU, 1GB)로 간다. 메모리가 1GB라
+설치와 빌드가 OOM으로 죽는데, `setup.sh`가 스왑 2GB를 만들고 설치 범위를
+detector로 좁혀서 넘긴다. detector 실행 자체는 종목당 0.5MB라 사양이
+문제된 적은 없다.
+
+Shape series를 바꾸면 **이미지 선택이 초기화된다**(Ampere는 ARM, E2는 x86
+이미지를 쓴다). shape을 먼저 정하고 이미지를 나중에 되돌린다. 마지막 검토
+화면에서 Ubuntu가 맞는지 반드시 확인한다 — Oracle Linux로 돌아가 있으면
+`setup.sh`의 `apt-get`이 없어 즉시 실패한다.
 
 **방화벽** — detector는 바깥에서 들어오는 연결이 필요 없다. 바이낸스와
 Supabase로 나가는 연결만 쓴다. 헬스체크 포트(8080)를 인터넷에 열지 않는다.
@@ -209,6 +225,18 @@ curl localhost:8080/health         # 상태
 `/health`는 백필이 끝나기 전까지 503, 끝나면 200을 준다. 종목별 예열 상태와
 백분위 표본 수가 들어 있어서 "시세가 잠잠한 것"과 "아직 못 깨어난 것"을
 구분할 수 있다.
+
+**여기서 멈추면 안 된다.** `active`도, 로그의 "스트림 연결됨"도, `/health`의
+200도 체결이 들어온다는 뜻이 아니다. 폐지된 WS 주소는 연결을 받아주고
+구독까지 확인해준 뒤 아무것도 보내지 않는다(CLAUDE.md § Silent Stream
+Death). 판별은 `ingestCount`가 **오르는가** 하나뿐이다.
+
+```bash
+curl -s localhost:8080/health   # symbols.<종목>.ingest.ingestCount
+# 12초 뒤 다시 재서 값이 늘었는지 본다. 메이저는 12초에 100건 이상 들어온다.
+```
+
+두 번 재서 같으면 스트림이 죽은 것이다. 시장이 조용해서 그럴 일은 없다.
 
 **갱신**
 
