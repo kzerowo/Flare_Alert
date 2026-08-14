@@ -184,6 +184,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { ok: false, problem: classify(error.message, error.status) };
       }
 
+      // 메일 확인이 켜져 있으면 이미 가입된 이메일이어도 에러를 던지지
+      // 않는다(이메일 열거 공격 방지) — 대신 identities가 빈 배열인 채로
+      // "성공"을 돌려준다. 이 신호를 안 잡으면 사용자는 실제로는 아무
+      // 메일도 오지 않는데 "메일함을 확인하라"는 안내만 보고 기다리게 된다.
+      if (data.user !== null && (data.user.identities?.length ?? 0) === 0) {
+        return { ok: false, problem: "email_taken" };
+      }
+
       // 메일 확인이 켜져 있으면 세션 없이 사용자만 돌아온다.
       // 이때 로그인된 것처럼 화면을 바꾸면 새로고침에 풀려서 더 혼란스럽다.
       const confirmed = data.session !== null;
