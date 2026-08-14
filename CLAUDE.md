@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-_Last updated: 2026-08-15 00:23_
+_Last updated: 2026-08-15 00:43_
 
 ## Project Overview
 
@@ -809,6 +809,27 @@ Invoked when the user asks to start dev, run everything, or similar ("개발 서
 
 **`WEEKLY.md`** — high-level summary of the week's work, tracking progress across deployment readiness, web UI iteration, and detector verification. Kept at the root for visibility and updated once per planning cycle.
 
+## Detector Server (live 2026-08-15)
+
+The detector runs on an Oracle Cloud always-free VM, `ubuntu@152.70.96.232` (Tokyo, `ap-tokyo-1`), as the systemd unit `flare-detector`. SSH uses the local `~/.ssh/id_ed25519` key.
+
+**The shape is `VM.Standard.E2.1.Micro` (x86, 1 OCPU, 954MB RAM), not the Ampere A1 the docs assume.** A1 is perpetually "Out of host capacity" in this region, and the region has only one availability domain, so there is no AD to retry against. Two consequences, both handled in `setup.sh`:
+
+- **A 2GB swap file is created on first run** when RAM < 2GB and swap < 1GB, registered in `/etc/fstab`. Measured during the first build: swap was actually used. Without it the build OOMs.
+- **`pnpm install` is filtered to `@flare-alert/detector...`** — detector plus `core`, which is what the filter resolves to. The server never runs web or backtest, so pulling Next.js/React was pure cost on a 1GB box.
+
+`StartLimitIntervalSec`/`StartLimitBurst` live in `[Unit]`, not `[Service]`. systemd silently ignores them in `[Service]` ("Unknown key name"), which means the restart-storm limit reads as configured while actually being absent.
+
+**Verifying the deploy is not "is the service active" — it is whether trades are arriving.** Per § Silent Stream Death, a dead stream looks identical to a quiet market. Sample `/health` twice and compare:
+
+```bash
+ssh ubuntu@152.70.96.232 'curl -s localhost:8080/health'   # symbols.<SYM>.ingest.ingestCount must climb
+```
+
+At the first live check both watched symbols ingested ~142 trades per 12 seconds. `ingestCount` flat across two samples means the stream is dead regardless of what the boot log said.
+
+`.env` is transferred from the local repo root, stripped of CR (systemd's `EnvironmentFile` would otherwise put `\r` inside every value), and left `600 flare:flare`.
+
 ## Known Gaps & Next Steps
 
 1. **Alert quality** — ✅ measured, hour-of-day confound controlled (2.08x corrected). Open: confirmation on 2–3 more symbols; hit-rate targets for a product callout.
@@ -816,10 +837,10 @@ Invoked when the user asks to start dev, run everything, or similar ("개발 서
 3. **Detector pipeline** — ✅ complete end-to-end. Open: confirm alert rate with a multi-day real-time run; measure user retention/engagement.
 4. **Ratio vs. percentile** — ✅ ratio won; the detector runs on ratios.
 4b. **Scale-driven slider** — ✅ implemented (2026-08-03). Slider axis swapped from ratio to timeframe; `SENSITIVITY_SCALES` table, `scaleAt/scaleIndexOf/scaleRatio/scaleAlertsPerDay()` exports, migration SQL 0003_channel_scale. Open: quiet-hour label still needed to settle median-vs-MA baseline question.
-4c. **Continuous 1–100 slider** — ✅ implemented (2026-08-03). See § Continuous Sensitivity. `SCALE_RATE_CURVES` (dense measured curves), `sensitivityAt()`/`levelForScale()`, `Channel.sensitivityLevel`, migration 0004, `backtest start dense`. **Open: migration 0004 is not yet applied to the live database.**
+4c. **Continuous 1–100 slider** — ✅ implemented (2026-08-03). See § Continuous Sensitivity. `SCALE_RATE_CURVES` (dense measured curves), `sensitivityAt()`/`levelForScale()`, `Channel.sensitivityLevel`, migration 0004, `backtest start dense`. Migration 0004 is applied to the live database (verified 2026-08-15 — `channels.sensitivity_level`, `scale`, and `sensitivity` all resolve).
 5. **Storage** — ✅ schema, auth, channel persistence, push subscriptions, alert logging, password reset. Open: alert retention policy (table grows unbounded).
 6. **Web UI** — ✅ MainApp, ChannelCard, ChannelForm, CoinIcon, AuthDialog + password reset + Google sign-in, MyPageDialog + account deletion, Web Push subscription, service worker, ko/en toggle, alert history view (all complete).
-7. **Deployment** — Vercel connected and building. `apps/detector/deploy/` (systemd unit + `setup.sh`) ready for Oracle Cloud; needs the user to provision a VM and run it. `setup.sh` handles low-memory servers by auto-creating a 2GB swap file if the system has <2GB RAM and <1GB swap, and restricts dependency installation to detector + core only (excluding web/backtest). `NEXT_PUBLIC_VAPID_PUBLIC_KEY` still needs to be added to Vercel's env vars for push to work on the deployed site.
+7. **Deployment** — ✅ Vercel connected and building; detector live on Oracle Cloud (see § Detector Server). `setup.sh` handles low-memory servers by auto-creating a 2GB swap file if the system has <2GB RAM and <1GB swap, and restricts dependency installation to detector + core only (excluding web/backtest). Open: `NEXT_PUBLIC_VAPID_PUBLIC_KEY` still needs to be added to Vercel's env vars for push to work on the deployed site.
 8. **Backtest tools** — ✅ `event-scale.ts` (scale markers + channel rate curve), `quality.ts`, `hour-matched.ts`, `turnover.ts`, `label-fit.ts` (label-based scoring) all in place.
 
 Deferred until the web app is complete: mobile app development (React Native/Expo, iOS + Android).

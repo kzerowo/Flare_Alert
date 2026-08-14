@@ -20,6 +20,12 @@ Documentation=https://github.com/kzerowo/Flare_Alert
 After=network-online.target
 Wants=network-online.target
 
+# 재시작 폭주 제한은 [Unit]에 둔다. [Service]에 쓰면 systemd가
+# "Unknown key name"으로 무시해서, 제한이 걸린 줄 알지만 실제로는
+# 아무 제한 없이 무한 재시작한다.
+StartLimitIntervalSec=300
+StartLimitBurst=10
+
 [Service]
 Type=simple
 User=flare
@@ -34,9 +40,6 @@ ExecStart=/usr/bin/node /opt/flare-alert/apps/detector/dist/index.js
 # 어떤 이유로 죽든 다시 띄운다.
 Restart=always
 RestartSec=5
-# 부팅 실패가 반복될 때 무한 재시작으로 CPU를 태우지 않게 한다.
-StartLimitIntervalSec=300
-StartLimitBurst=10
 
 # 로그는 journald가 받는다. 파일로 직접 쓰면 로테이션을 따로 해야 한다.
 StandardOutput=journal
