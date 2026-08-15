@@ -57,12 +57,12 @@ export function ResetPasswordDialog() {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/70 p-4 backdrop-blur-sm">
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="reset-title"
-        className="panel w-full max-w-md rounded-xl p-12 shadow-2xl"
+        className="panel my-auto w-full max-w-md rounded-xl p-6 shadow-2xl sm:p-12"
       >
         <span className="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-lg bg-primary-container text-on-primary-container">
           <Icon name="lock" size={24} />
@@ -77,7 +77,7 @@ export function ResetPasswordDialog() {
 
         {done ? (
           <>
-            <p className="mt-12 rounded-lg border border-primary/30 bg-primary/5 p-4 text-body-sm leading-relaxed text-on-surface">
+            <p className="mt-8 sm:mt-12 rounded-lg border border-primary/30 bg-primary/5 p-4 text-body-sm leading-relaxed text-on-surface">
               {t.auth.resetDone}
             </p>
             <button
@@ -89,7 +89,7 @@ export function ResetPasswordDialog() {
             </button>
           </>
         ) : (
-          <form className="mt-12 space-y-6" onSubmit={submit}>
+          <form className="mt-8 space-y-6 sm:mt-12" onSubmit={submit}>
             <PasswordField
               id="reset-password"
               label={t.auth.newPassword}

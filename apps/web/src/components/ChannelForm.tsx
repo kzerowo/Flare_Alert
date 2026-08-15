@@ -98,8 +98,8 @@ export function ChannelForm({ initial, signedIn, onSave, onCancel }: Props) {
     ) : null}
 
     <div className="panel overflow-hidden rounded-xl">
-      <div className="border-b border-white/5 p-6">
-        <h2 className="text-display">
+      <div className="border-b border-white/5 p-4 sm:p-6">
+        <h2 className="text-headline sm:text-display">
           {initial === undefined ? t.form.createTitle : t.form.editTitle}
         </h2>
         <p className="mt-1 text-body-sm text-on-surface-variant">
@@ -107,7 +107,7 @@ export function ChannelForm({ initial, signedIn, onSave, onCancel }: Props) {
         </p>
       </div>
 
-      <div className="space-y-12 p-6">
+      <div className="space-y-8 p-4 sm:space-y-12 sm:p-6">
         {/* 이름 */}
         <section className="space-y-2">
           <label htmlFor="channel-name" className="label block text-on-surface-variant">
@@ -128,7 +128,7 @@ export function ChannelForm({ initial, signedIn, onSave, onCancel }: Props) {
 
         {/* 코인 */}
         <section className="space-y-4">
-          <div className="flex items-end justify-between">
+          <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-1">
             <span className="label text-on-surface-variant">
               {t.form.symbolsLabel}
             </span>
@@ -256,18 +256,18 @@ export function ChannelForm({ initial, signedIn, onSave, onCancel }: Props) {
       </div>
 
       {/* 동작 */}
-      <div className="flex items-center justify-end gap-4 bg-white/5 p-6">
+      <div className="flex items-center justify-end gap-2 bg-white/5 p-4 sm:gap-4 sm:p-6">
         <button
           type="button"
           onClick={onCancel}
-          className="label px-12 py-4 text-on-surface-variant transition-colors hover:text-on-surface"
+          className="label px-6 py-4 text-on-surface-variant transition-colors hover:text-on-surface sm:px-12"
         >
           {t.form.cancel}
         </button>
         <button
           type="button"
           onClick={submit}
-          className="rounded-lg bg-primary-container px-12 py-4 font-bold text-on-primary-container transition-all hover:shadow-[0_0_20px_rgba(56,189,248,0.4)] active:scale-95"
+          className="rounded-lg bg-primary-container px-6 py-4 font-bold text-on-primary-container transition-all hover:shadow-[0_0_20px_rgba(56,189,248,0.4)] active:scale-95 sm:px-12"
         >
           {initial === undefined ? t.form.createTitle : t.form.save}
         </button>

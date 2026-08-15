@@ -151,9 +151,9 @@ export function SensitivityTest({ symbol, onApply, onClose }: Props) {
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/70 p-4 sm:p-6">
       <div className="panel my-auto w-full max-w-4xl overflow-hidden rounded-xl">
-        <header className="flex items-start justify-between gap-4 border-b border-white/5 p-6">
+        <header className="flex items-start justify-between gap-4 border-b border-white/5 p-4 sm:p-6">
           <div>
-            <h2 className="text-display">{t.test.title}</h2>
+            <h2 className="text-headline sm:text-display">{t.test.title}</h2>
             <p className="mt-1 text-body-sm text-on-surface-variant">
               {t.test.subtitle}
             </p>
@@ -169,7 +169,7 @@ export function SensitivityTest({ symbol, onApply, onClose }: Props) {
         </header>
 
         {error !== null ? (
-          <div className="space-y-4 p-6">
+          <div className="space-y-4 p-4 sm:p-6">
             <div className="rounded-lg border border-danger/30 bg-danger/5 p-4">
               <p className="text-body text-danger">{t.test.errorTitle}</p>
               <p className="mt-1 text-body-sm text-on-surface-variant">
@@ -186,7 +186,7 @@ export function SensitivityTest({ symbol, onApply, onClose }: Props) {
             </button>
           </div>
         ) : phase === "pick" ? (
-          <div className="space-y-6 p-6">
+          <div className="space-y-6 p-4 sm:p-6">
             <div>
               <h3 className="text-title">{t.test.pickTitle}</h3>
               <p className="mt-1 text-body-sm text-on-surface-variant">
@@ -219,14 +219,14 @@ export function SensitivityTest({ symbol, onApply, onClose }: Props) {
             </p>
           </div>
         ) : phase === "loading" ? (
-          <div className="flex flex-col items-center gap-4 p-24">
+          <div className="flex flex-col items-center gap-4 p-16 sm:p-24">
             <span className="h-8 w-8 animate-spin rounded-full border-2 border-outline-variant border-t-primary" />
             <p className="text-body-sm text-on-surface-variant">
               {t.test.loading}
             </p>
           </div>
         ) : phase === "labeling" && chart !== undefined ? (
-          <div className="space-y-4 p-6">
+          <div className="space-y-4 p-4 sm:p-6">
             <div className="flex flex-wrap items-end justify-between gap-2">
               <div>
                 <h3 className="text-title">{t.test.instruction}</h3>
@@ -255,7 +255,7 @@ export function SensitivityTest({ symbol, onApply, onClose }: Props) {
               ))}
             </div>
 
-            <div className="rounded-xl border border-white/5 bg-surface p-4">
+            <div className="rounded-xl border border-white/5 bg-surface p-2 sm:p-4">
               <VolumeChart
                 bars={chart.bars}
                 selected={current}
@@ -305,8 +305,8 @@ export function SensitivityTest({ symbol, onApply, onClose }: Props) {
             </div>
           </div>
         ) : phase === "result" && fit !== null ? (
-          <div className="space-y-6 p-6">
-            <div className="rounded-xl border border-primary/20 bg-primary/5 p-6">
+          <div className="space-y-6 p-4 sm:p-6">
+            <div className="rounded-xl border border-primary/20 bg-primary/5 p-4 sm:p-6">
               <p className="label text-on-surface-variant">
                 {t.test.resultTitle}
               </p>
@@ -322,26 +322,30 @@ export function SensitivityTest({ symbol, onApply, onClose }: Props) {
             </div>
 
             {/* 채점 결과를 숨기지 않는다. 추천이 얼마나 맞는지 사용자가 본다. */}
-            <dl className="grid grid-cols-3 gap-4">
-              <div className="rounded-lg border border-white/5 bg-surface p-4">
+            <dl className="grid grid-cols-3 gap-2 sm:gap-4">
+              <div className="rounded-lg border border-white/5 bg-surface p-3 sm:p-4">
                 <dt className="label text-on-surface-variant">
                   {t.test.scoreCaught}
                 </dt>
-                <dd className="mt-1 font-mono text-headline">
+                <dd className="mt-1 font-mono text-title sm:text-headline">
                   {fit.caught}/{fit.wanted}
                 </dd>
               </div>
-              <div className="rounded-lg border border-white/5 bg-surface p-4">
+              <div className="rounded-lg border border-white/5 bg-surface p-3 sm:p-4">
                 <dt className="label text-on-surface-variant">
                   {t.test.scoreExtra}
                 </dt>
-                <dd className="mt-1 font-mono text-headline">{fit.extra}</dd>
+                <dd className="mt-1 font-mono text-title sm:text-headline">
+                  {fit.extra}
+                </dd>
               </div>
-              <div className="rounded-lg border border-white/5 bg-surface p-4">
+              <div className="rounded-lg border border-white/5 bg-surface p-3 sm:p-4">
                 <dt className="label text-on-surface-variant">
                   {t.test.scoreRounds}
                 </dt>
-                <dd className="mt-1 font-mono text-headline">{round + 1}</dd>
+                <dd className="mt-1 font-mono text-title sm:text-headline">
+                  {round + 1}
+                </dd>
               </div>
             </dl>
 
@@ -371,7 +375,7 @@ export function SensitivityTest({ symbol, onApply, onClose }: Props) {
             </div>
           </div>
         ) : (
-          <div className="space-y-4 p-6">
+          <div className="space-y-4 p-4 sm:p-6">
             <p className="text-body-sm text-on-surface-variant">
               {t.test.needLabels(MIN_LABELS_FOR_FIT)}
             </p>

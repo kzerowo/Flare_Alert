@@ -111,7 +111,7 @@ function AlertItem({
   const fired = new Date(alert.firedAtMs);
 
   return (
-    <li className="card group flex items-center gap-4 rounded-xl p-4">
+    <li className="card group flex items-center gap-3 rounded-xl p-3 sm:gap-4 sm:p-4">
       <CoinIcon symbol={alert.symbol} size={28} />
 
       <div className="min-w-0 flex-grow">
@@ -155,7 +155,10 @@ function AlertItem({
         aria-label={t.alerts.remove}
         // 기록은 자주 지우는 것이 아니라 평소에는 숨겨 둔다.
         // 키보드 사용자를 위해 포커스가 오면 다시 보이게 한다.
-        className="shrink-0 text-outline opacity-0 transition-all hover:text-danger focus-visible:opacity-100 group-hover:opacity-100"
+        //
+        // 숨기는 것은 hover가 있는 기기에서만이다. 손가락에는 hover가 없어서
+        // 조건 없이 숨기면 휴대폰에서는 지울 방법이 아예 사라진다.
+        className="-m-2 shrink-0 rounded-lg p-2 text-outline transition-all hover:text-danger focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:hover)]:opacity-0"
       >
         <Icon name="close" size={16} />
       </button>
@@ -262,7 +265,7 @@ function EmptyState({
   body: string;
 }) {
   return (
-    <div className="card mx-auto flex max-w-md flex-col items-center rounded-xl border-dashed p-12 text-center">
+    <div className="card mx-auto flex max-w-md flex-col items-center rounded-xl border-dashed p-8 text-center sm:p-12">
       <span className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-surface-high text-primary">
         <Icon name={icon} size={32} />
       </span>

@@ -133,13 +133,18 @@ export function AuthDialog({ mode, onClose }: Props) {
     setSentReset(false);
   }
 
+  /*
+   * 세로로 넘치면 스크롤한다. 회원가입은 구글 버튼까지 있어서 낮은 휴대폰
+   * 화면보다 길어지는데, items-center로 가운데만 잡아 두면 위아래가 잘린
+   * 채 스크롤도 안 되어 제출 버튼에 손이 닿지 않는다.
+   */
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/70 p-4 backdrop-blur-sm"
       onClick={onClose}
     >
       <div
-        className="panel w-full max-w-md rounded-xl p-12 shadow-2xl"
+        className="panel my-auto w-full max-w-md rounded-xl p-6 shadow-2xl sm:p-12"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-start justify-between">
@@ -162,7 +167,7 @@ export function AuthDialog({ mode, onClose }: Props) {
           <button
             type="button"
             onClick={onClose}
-            className="text-on-surface-variant transition-colors hover:text-primary"
+            className="-m-2 shrink-0 rounded-lg p-2 text-on-surface-variant transition-colors hover:text-primary"
             aria-label={t.auth.close}
           >
             <Icon name="close" size={20} />
@@ -170,13 +175,13 @@ export function AuthDialog({ mode, onClose }: Props) {
         </div>
 
         {sentConfirmation || sentReset ? (
-          <p className="mt-12 rounded-lg border border-primary/30 bg-primary/5 p-4 text-body-sm leading-relaxed text-on-surface">
+          <p className="mt-8 rounded-lg border border-primary/30 bg-primary/5 p-4 text-body-sm leading-relaxed text-on-surface sm:mt-12">
             {sentReset ? t.auth.resetSent : t.auth.checkEmail}
           </p>
         ) : (
           <>
             {isForgot ? null : (
-              <div className="mt-12">
+              <div className="mt-8 sm:mt-12">
                 <button
                   type="button"
                   onClick={() => void submitGoogle()}
@@ -195,7 +200,10 @@ export function AuthDialog({ mode, onClose }: Props) {
               </div>
             )}
 
-          <form className={isForgot ? "mt-12 space-y-6" : "space-y-6"} onSubmit={submit}>
+          <form
+            className={isForgot ? "mt-8 space-y-6 sm:mt-12" : "space-y-6"}
+            onSubmit={submit}
+          >
             <div className="space-y-1">
               <label htmlFor="auth-email" className="label block px-1 text-on-surface-variant">
                 {t.auth.email}

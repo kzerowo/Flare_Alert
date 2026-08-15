@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-_Last updated: 2026-08-15 00:47_
+_Last updated: 2026-08-16 06:17_
 
 ## Project Overview
 
@@ -885,3 +885,20 @@ Both features are opt-in (Google sign-in requires Supabase setup; account deleti
 **Duplicate email handling**: When email confirmation is enabled, Supabase does not return an error for already-registered emails (to prevent email enumeration attacks). Instead, it returns `identities: []` (empty array) while reporting success. Previously, the signup flow did not check this signal, so users would be shown "check your email" even though no confirmation mail would ever arrive.
 
 The fix checks `data.user.identities?.length === 0` in `signUp()` and returns `{ ok: false, problem: "email_taken" }` to show the appropriate error message. This applies only when email verification is active; without it, Supabase does return a proper error.
+
+## Mobile-First Responsive Refinements (in progress 2026-08-15)
+
+**The web UI layout is being refined for mobile screens with Tailwind `sm:` breakpoint utilities.**
+
+All major components (MainApp, ChannelCard, AlertHistory, dialogs, SensitivityTest, VolumeChart) are being adjusted to:
+
+- **Reduce base padding and spacing on mobile** — base values shrink (e.g., `p-6` → `p-4 sm:p-6`, `gap-4` → `gap-3 sm:gap-4`), expanding on tablets/desktop where space permits
+- **Reflow vertical stacking on narrow screens** — tab bar + create button now stack vertically on mobile (`flex-col sm:flex-row`) to prevent horizontal spillover
+- **Responsive typography** — smaller headings on mobile (`text-headline sm:text-display`) scale appropriately
+- **Touch-friendly button targets** — delete/action buttons widened with padding and focus rings visible to all devices, not just hover-capable ones (using `@media(hover:hover)` to hide opacity effects on phones)
+- **Prevent shrinking critical text** — navigation items use `shrink-0` and `whitespace-nowrap` to avoid collapsing on narrow viewports
+- **Flexible component sizing** — form dialogs, empty states, and notification prompts adapt their spacing per viewport width
+
+Changes touch: `globals.css` (new responsive utilities), `MainApp.tsx`, `ChannelCard.tsx`, `ChannelForm.tsx`, `AlertHistory.tsx`, `AuthDialog.tsx`, `ResetPasswordDialog.tsx`, `MyPageDialog.tsx`, `ConfirmDialog.tsx`, `SensitivityTest.tsx`, `VolumeChart.tsx`.
+
+This is purely a visual/UX refinement; no functional logic, state management, or API behavior changed.

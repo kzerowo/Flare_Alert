@@ -106,13 +106,16 @@ export function ChannelCard({
         </div>
       </div>
 
-      {/* 발 */}
-      <div className="flex items-center justify-between border-t border-white/5 bg-white/[0.02] p-4">
+      {/*
+        발. 좁은 화면에서는 줄바꿈을 허용한다. 영어 라벨(History/Edit/Delete +
+        WATCHING)은 한 줄에 다 들어가지 않아 오른쪽 스위치가 밀려 나간다.
+      */}
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 border-t border-white/5 bg-white/[0.02] p-4">
         <div className="flex gap-4">
           <button
             type="button"
             onClick={onHistory}
-            className="flex items-center gap-1 text-body-sm text-on-surface-variant transition-colors hover:text-primary"
+            className="flex items-center gap-1 py-1 text-body-sm text-on-surface-variant transition-colors hover:text-primary"
           >
             <Icon name="bell" size={16} />
             {t.card.history}
@@ -120,7 +123,7 @@ export function ChannelCard({
           <button
             type="button"
             onClick={onEdit}
-            className="flex items-center gap-1 text-body-sm text-on-surface-variant transition-colors hover:text-primary"
+            className="flex items-center gap-1 py-1 text-body-sm text-on-surface-variant transition-colors hover:text-primary"
           >
             <Icon name="edit" size={16} />
             {t.card.edit}
@@ -128,7 +131,7 @@ export function ChannelCard({
           <button
             type="button"
             onClick={onRemove}
-            className="flex items-center gap-1 text-body-sm text-on-surface-variant transition-colors hover:text-danger"
+            className="flex items-center gap-1 py-1 text-body-sm text-on-surface-variant transition-colors hover:text-danger"
           >
             <Icon name="trash" size={16} />
             {t.card.remove}

@@ -24,6 +24,19 @@ const VIEW_WIDTH = 1000;
 const VIEW_HEIGHT = 260;
 const GAP = 2;
 
+/**
+ * 봉 하나가 화면에서 차지해야 하는 최소 폭(px).
+ *
+ * 휴대폰 화면(360px)에 100봉을 그대로 채우면 봉당 3px이라 손가락으로는
+ * 고를 수가 없다. 옆 봉을 누르게 되고, 그 오답이 그대로 라벨이 되어
+ * 추천 민감도를 망친다.
+ *
+ * 그래서 좁은 화면에서는 줄이는 대신 가로로 넘긴다. 봉 수를 줄이면 한 판이
+ * 담는 기간이 달라져서 실측 절차와 어긋난다. 데스크톱에서는 폭이 이미
+ * 넉넉해 이 값이 걸리지 않으므로 스크롤이 생기지 않는다.
+ */
+const MIN_BAR_PX = 8;
+
 interface Props {
   bars: readonly TestBar[];
   /** 사용자가 고른 봉의 인덱스. */
@@ -61,11 +74,13 @@ export function VolumeChart({ bars, selected, onToggle, label }: Props) {
   }
 
   return (
+    <div className="overflow-x-auto">
     <svg
       viewBox={`0 0 ${VIEW_WIDTH} ${VIEW_HEIGHT}`}
       role="group"
       aria-label={label}
       className="w-full touch-manipulation select-none"
+      style={{ minWidth: `${bars.length * MIN_BAR_PX}px` }}
     >
       {bars.map((bar, index) => {
         const on = selected.has(index);
@@ -126,5 +141,6 @@ export function VolumeChart({ bars, selected, onToggle, label }: Props) {
         );
       })}
     </svg>
+    </div>
   );
 }

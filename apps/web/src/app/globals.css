@@ -131,6 +131,22 @@ body {
   label:has(> input[type="checkbox"]:disabled) {
     cursor: not-allowed;
   }
+
+  /*
+   * iOS 사파리는 글자가 16px보다 작은 입력란에 초점이 가면 화면을 확대한다.
+   * 확대된 뒤에는 스스로 되돌아오지 않아서, 한 번 입력하면 그 뒤로 화면이
+   * 계속 잘린 채로 남는다.
+   *
+   * 입력란마다 클래스를 고치는 대신 여기서 한 번에 막는다. 좁은 화면에서만
+   * 걸어서 데스크톱의 text-body-sm(14px) 입력란 모양은 그대로 둔다.
+   */
+  @media (max-width: 640px) {
+    input:not([type="range"]):not([type="checkbox"]),
+    select,
+    textarea {
+      font-size: 16px;
+    }
+  }
 }
 
 /*
@@ -177,6 +193,12 @@ input[type="range"] {
   appearance: none;
   -webkit-appearance: none;
   background: transparent;
+  /*
+   * 트랙은 4px이지만 손가락은 그보다 굵다. 입력란 자체를 24px로 키워
+   * 트랙 위아래로 누를 여백을 준다. 트랙과 손잡이는 그 안에서 가운데
+   * 정렬되므로 보이는 모양은 그대로다.
+   */
+  height: 24px;
 }
 
 input[type="range"]::-webkit-slider-runnable-track {

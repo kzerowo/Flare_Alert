@@ -29,14 +29,14 @@ export function ConfirmDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/70 p-4 backdrop-blur-sm"
       onClick={onCancel}
     >
       <div
         role="alertdialog"
         aria-modal="true"
         aria-labelledby="confirm-dialog-title"
-        className="panel w-full max-w-sm rounded-xl p-8 shadow-2xl"
+        className="panel my-auto w-full max-w-sm rounded-xl p-6 shadow-2xl sm:p-8"
         onClick={(event) => event.stopPropagation()}
       >
         <span className="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-lg bg-danger/15 text-danger">
@@ -48,18 +48,18 @@ export function ConfirmDialog({
         </h2>
         <p className="mt-1 text-body-sm text-on-surface-variant">{body}</p>
 
-        <div className="mt-6 flex justify-end gap-2">
+        <div className="mt-6 flex flex-wrap justify-end gap-2">
           <button
             type="button"
             onClick={onCancel}
-            className="label rounded-lg px-4 py-2 text-on-surface-variant transition-colors hover:text-on-surface"
+            className="label rounded-lg px-4 py-3 text-on-surface-variant transition-colors hover:text-on-surface"
           >
             {t.form.cancel}
           </button>
           <button
             type="button"
             onClick={onConfirm}
-            className="label rounded-lg border border-danger px-4 py-2 text-danger transition-colors hover:bg-danger/10"
+            className="label rounded-lg border border-danger px-4 py-3 text-danger transition-colors hover:bg-danger/10"
           >
             {confirmLabel}
           </button>
