@@ -42,7 +42,35 @@ export type ChannelSymbolRow = {
 export type ProfileRow = {
   id: string;
   locale: string;
+  /** 'free' | 'pro'. 실제 판정은 effectivePlan()을 거친다 — 0006 참고. */
+  plan: string;
+  /** 'user' | 'admin'. */
+  role: string;
+  /** null이면 만료 없음. */
+  plan_expires_at: string | null;
   created_at: string;
+};
+
+/** admin_list_users()가 돌려주는 한 행. auth.users의 이메일이 붙는다. */
+export type AdminUserRow = {
+  id: string;
+  email: string;
+  plan: string;
+  role: string;
+  plan_expires_at: string | null;
+  created_at: string;
+  channel_count: number;
+  alert_count: number;
+};
+
+/** admin_stats()가 돌려주는 한 행. */
+export type AdminStatsRow = {
+  total_users: number;
+  pro_users: number;
+  total_channels: number;
+  enabled_channels: number;
+  push_subscriptions: number;
+  alerts_24h: number;
 };
 
 export type PushSubscriptionRow = {
@@ -112,7 +140,10 @@ export type Database = {
       profiles: {
         Row: ProfileRow;
         Insert: Pick<ProfileRow, "id"> & Partial<ProfileRow>;
-        Update: Partial<Omit<ProfileRow, "id">>;
+        // plan/role/plan_expires_at은 뺀다. 0006의 guard 트리거가 브라우저에서
+        // 온 변경을 거절하므로, 타입에 남겨 두면 컴파일은 되고 실행만 실패하는
+        // 코드를 쓸 수 있게 된다. 요금제 변경은 admin_set_plan()으로만 한다.
+        Update: Partial<Pick<ProfileRow, "locale">>;
         Relationships: [];
       };
       push_subscriptions: {
@@ -137,6 +168,26 @@ export type Database = {
       delete_own_account: {
         Args: Record<PropertyKey, never>;
         Returns: void;
+      };
+
+      // supabase/migrations/0006_plans_and_admin.sql.
+      // 셋 다 안에서 is_admin()으로 막혀 있다. 일반 사용자가 불러도
+      // 예외만 돌아오므로, 화면에서 감추는 것이 유일한 방어가 아니다.
+      admin_list_users: {
+        Args: { search?: string | null; max_rows?: number };
+        Returns: AdminUserRow[];
+      };
+      admin_set_plan: {
+        Args: {
+          target_id: string;
+          next_plan: string;
+          expires_at?: string | null;
+        };
+        Returns: void;
+      };
+      admin_stats: {
+        Args: Record<PropertyKey, never>;
+        Returns: AdminStatsRow[];
       };
     };
     Enums: Record<string, never>;

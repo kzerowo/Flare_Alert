@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-_Last updated: 2026-08-16 06:17_
+_Last updated: 2026-08-16 08:17_
 
 ## Project Overview
 
@@ -168,6 +168,36 @@ All actively traded on Binance USDT. Coin icons live in `apps/web/public/coins/`
 └── apps/web/vercel.json         # Vercel build config: monorepo build (core first, then web)
 ```
 
+## Plans & Admin (implemented 2026-08-16)
+
+**Free = 3 channels, Pro = unlimited, admin = always Pro.** Price is provisionally $4/mo; billing is not built.
+
+`profiles` carries three new columns (`0006`): `plan` (`free`/`pro`), `role` (`user`/`admin`), `plan_expires_at` (nullable). **`plan` and `role` are separate axes on purpose** — an admin is someone who operates the service, not someone who paid. Folding them into one column would count admins as paying users the moment billing lands.
+
+`packages/core/src/plan.ts` is the source of truth for three rules, and `0006`'s `effective_plan()` / `channel_limit_for()` are the SQL translation of the same rules:
+
+1. `role = 'admin'` → always Pro.
+2. `plan = 'pro'` with `plan_expires_at` in the past → Free.
+3. Free → `FREE_CHANNEL_LIMIT` (3). Pro → `null`, meaning unlimited.
+
+Unlimited is `null`, never a large number — the UI has to render "unlimited" differently from "999", and a sentinel number erases that distinction.
+
+**The limit is enforced by a DB trigger, not by the UI.** The web queries Supabase directly with the public anon key, so hiding the button is not a defense — a free user can insert 100 rows from devtools. `channels_enforce_limit` (BEFORE INSERT) raises `channel_limit_reached`, and `channel-store.tsx` matches on that string to show the right message. The client-side check exists only so the user learns about the limit before filling in a form.
+
+**A user updating their own `profiles` row was a one-line privilege escalation.** `0001`'s "본인 프로필만 다룬다" policy is `for all`, so `update profiles set plan='pro', role='admin' where id=auth.uid()` would have worked. `profiles_guard_privileges` (BEFORE UPDATE) blocks changes to those three columns; `locale` stays user-editable. **The guard keys off `auth.uid()`, not `current_user`** — the function is SECURITY DEFINER, so `current_user` always reads as the owner and a `current_user`-based check would silently never fire. `auth.uid()` comes from the request JWT and is unaffected, which also makes the SQL editor and service_role (future billing webhook) pass through as intended.
+
+**Admin access is RPC-only** — `admin_list_users`, `admin_set_plan`, `admin_stats`, each gated by `is_admin()` inside. No blanket "admins can read everything" RLS policy exists, because that is hard to walk back. Emails live in `auth.users`, which cannot carry policies, so a SECURITY DEFINER function was required for listing regardless.
+
+**Downgrade does not delete channels.** The trigger only guards inserts, so a demoted Pro user would otherwise keep all their channels running. `admin_set_plan` keeps the oldest N (by `created_at`) and sets `enabled = false` on the rest; the detector reads `enabled = true` only. Re-upgrading does *not* re-enable them — there is no way to tell a system-disabled channel from one the user switched off, and wrongly switching one back on is worse.
+
+**Guests are treated as Free.** They have no profile row, so `DEFAULT_MEMBERSHIP` applies. This matters at the guest→member migration: without it, a guest could build ten channels and have seven rejected by the trigger on first login. The migration loop now stops at the first limit rejection, keeps what fit, clears sessionStorage anyway (otherwise every refresh replays the same rejection), and raises `StoreProblem: "limit"`.
+
+**Roles cannot be changed from the UI.** Promoting an admin is rare and hard to reverse (an admin can demote themselves and leave nobody with access), so it is a SQL-editor operation. `0006` bootstraps the first admin by email at the bottom of the file — the chicken-and-egg case, since `admin_set_plan` requires an existing admin.
+
+`ProfileProvider` sits between `AuthProvider` and `ChannelStoreProvider` (the store needs the limit, which comes from the plan). It assumes Free while loading and on read failure — the opposite default would briefly open the create button and then have the DB reject the result.
+
+**Not applied to the live database yet.** `0006` must be run in the Supabase SQL editor before the plan columns resolve. Until then `ProfileProvider` fails its read, falls back to Free, and every account is limited to 3 channels.
+
 ## Storage (Supabase)
 
 Five tables: profiles, channels, channel_symbols, push_subscriptions, alerts; RLS on all of them.
@@ -325,7 +355,7 @@ cp .env.example .env
 pnpm dev:web                # builds core, then next dev on :3010 (pinned — see apps/web/package.json)
 pnpm dev:detector           # builds core, then runs detector (live Binance)
 
-pnpm test                   # 123 tests (112 core + 11 detector)
+pnpm test                   # 144 tests (133 core + 11 detector)
 pnpm typecheck              # all 4 workspaces
 pnpm build                  # topological build
 pnpm clean
@@ -418,7 +448,7 @@ Next.js reads `apps/web/.env.local`, not the root `.env`. There is no Binance AP
 
 ## Testing
 
-`packages/core`: 112 tests (`node:test`) — math primitives, baseline/score edge cases, percentile accuracy vs. exact sorted ranks, day-based sample eviction, cooldown behavior, slider↔percentile round-trips, scale markers, alert-rate description thresholds, the five-stop scale axis (monotone rate/ratio, `1d` excluded, index↔bar round-trip, percentile→scale boundaries pinned against migration 0003), and the continuous 1–100 axis (anchors reproduced exactly at 20/40/60/80/100, rate monotone across all 100 positions **including band boundaries**, ratio monotone within a band, ratio stays inside the measured curve range, band anchors pinned against migration 0004, and curve↔table agreement), and the sensitivity test's label fitting (15 tests — baseline warmup gap, median-not-mean, band coverage, in-band results at both extremes, misclick rejection among a realistic 90-bar background, threshold landing between the two label groups, clamp direction at each band end, and result numbers matching what the slider shows at that level).
+`packages/core`: 133 tests (`node:test`) — math primitives, baseline/score edge cases, percentile accuracy vs. exact sorted ranks, day-based sample eviction, cooldown behavior, slider↔percentile round-trips, scale markers, alert-rate description thresholds, the five-stop scale axis (monotone rate/ratio, `1d` excluded, index↔bar round-trip, percentile→scale boundaries pinned against migration 0003), and the continuous 1–100 axis (anchors reproduced exactly at 20/40/60/80/100, rate monotone across all 100 positions **including band boundaries**, ratio monotone within a band, ratio stays inside the measured curve range, band anchors pinned against migration 0004, and curve↔table agreement), and the sensitivity test's label fitting (15 tests — baseline warmup gap, median-not-mean, band coverage, in-band results at both extremes, misclick rejection among a realistic 90-bar background, threshold landing between the two label groups, clamp direction at each band end, and result numbers matching what the slider shows at that level), and the plan axis (21 tests — admin outranks a stored `free`, expiry boundary treated as expired, unlimited stays `null` rather than a sentinel number, an already-over-limit count still refuses, and unknown plan/role strings degrading to free/user).
 
 `apps/detector`: 11 tests — window alignment to absolute epoch boundaries, elapsed-time gating, velocity computation, late/early trade buffer, and (most importantly) that minute-granularity backfill and second-granularity live stepping produce identical windows — this is what lets cold-start priming share the live code path.
 
@@ -840,6 +870,7 @@ At the first live check both watched symbols ingested ~142 trades per 12 seconds
 4c. **Continuous 1–100 slider** — ✅ implemented (2026-08-03). See § Continuous Sensitivity. `SCALE_RATE_CURVES` (dense measured curves), `sensitivityAt()`/`levelForScale()`, `Channel.sensitivityLevel`, migration 0004, `backtest start dense`. Migration 0004 is applied to the live database (verified 2026-08-15 — `channels.sensitivity_level`, `scale`, and `sensitivity` all resolve).
 5. **Storage** — ✅ schema, auth, channel persistence, push subscriptions, alert logging, password reset. Open: alert retention policy (table grows unbounded).
 6. **Web UI** — ✅ MainApp, ChannelCard, ChannelForm, CoinIcon, AuthDialog + password reset + Google sign-in, MyPageDialog + account deletion, Web Push subscription, service worker, ko/en toggle, alert history view (all complete).
+6b. **Plans & admin** — ✅ free/pro columns, DB-enforced channel limit, privilege guard, admin console at `/admin` (see § Plans & Admin). Open: **apply `0006` to the live database**; wire a payment provider to `admin_set_plan`; decide whether the detector should also refuse over-limit channels rather than relying on the downgrade sweep.
 7. **Deployment** — ✅ Vercel connected and building; detector live on Oracle Cloud (see § Detector Server). `setup.sh` handles low-memory servers by auto-creating a 2GB swap file if the system has <2GB RAM and <1GB swap, and restricts dependency installation to detector + core only (excluding web/backtest). Open: `NEXT_PUBLIC_VAPID_PUBLIC_KEY` still needs to be added to Vercel's env vars for push to work on the deployed site.
 8. **Backtest tools** — ✅ `event-scale.ts` (scale markers + channel rate curve), `quality.ts`, `hour-matched.ts`, `turnover.ts`, `label-fit.ts` (label-based scoring) all in place.
 

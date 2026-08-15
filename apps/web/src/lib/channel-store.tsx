@@ -22,6 +22,7 @@ import {
 import type { Channel } from "@flare-alert/core";
 
 import { useAuth } from "./auth";
+import { useProfile } from "./profile";
 import { getBrowserClient } from "./supabase/client";
 import {
   createChannelRow,
@@ -48,7 +49,7 @@ import {
 const STORAGE_KEY = "flare-alert.channels.v1";
 
 /** 화면에 띄울 실패 종류. 문구는 i18n에서 붙인다. */
-export type StoreProblem = "load" | "save";
+export type StoreProblem = "load" | "save" | "limit";
 
 interface ChannelStore {
   channels: Channel[];
@@ -56,11 +57,28 @@ interface ChannelStore {
   loaded: boolean;
   /** 계정에 저장되는 중인지. false면 이 탭에서만 유지된다. */
   persistent: boolean;
+  /** 만들 수 있는 채널 수. null이면 무제한(pro/관리자). */
+  limit: number | null;
+  /** 지금 더 만들 수 있는지. 화면은 이걸 보고 만들기 버튼을 잠근다. */
+  atLimit: boolean;
   problem: StoreProblem | null;
   dismissProblem: () => void;
   add: (channel: Channel) => void;
   update: (channel: Channel) => void;
   remove: (id: string) => void;
+}
+
+/**
+ * DB가 한도로 거절했는지.
+ *
+ * 0006의 enforce_channel_limit()이 던지는 문자열이다. 이걸 구분하지 않으면
+ * 네 번째 채널을 만들었을 때 "저장하지 못했습니다"라는, 무엇을 고쳐야
+ * 하는지 알 수 없는 문구가 뜬다.
+ */
+function isLimitError(error: unknown): boolean {
+  return (
+    error instanceof Error && error.message.includes("channel_limit_reached")
+  );
 }
 
 const Context = createContext<ChannelStore | null>(null);
@@ -172,6 +190,10 @@ function clearSession(): void {
 
 export function ChannelStoreProvider({ children }: { children: ReactNode }) {
   const { user, loaded: authLoaded } = useAuth();
+  // 게스트에게도 같은 한도를 건다. 게스트는 프로필이 없어 무료로 잡히는데,
+  // 이게 맞는 동작이다 — 게스트가 열 개를 만들어 두고 로그인하면 그중
+  // 일곱 개가 DB 트리거에 거절당하는 편이 훨씬 나쁘다.
+  const { channelLimit: limit } = useProfile();
   const client = getBrowserClient();
 
   const [channels, setChannels] = useState<Channel[]>([]);
@@ -210,14 +232,33 @@ export function ChannelStoreProvider({ children }: { children: ReactNode }) {
         const pending = readSession();
         if (pending.length > 0 && user !== null) {
           const moved: Channel[] = [];
+          let hitLimit = false;
+
           for (const channel of pending) {
-            moved.push(await createChannelRow(client, user.id, channel));
+            try {
+              moved.push(await createChannelRow(client, user.id, channel));
+            } catch (error) {
+              // 계정에 이미 채널이 있으면 게스트 것까지 합쳐 한도를 넘길 수
+              // 있다. 여기서 통째로 실패하면 옮길 수 있었던 것까지 잃는다.
+              // 들어가는 만큼 넣고 나머지는 포기한 뒤 이유를 알린다.
+              if (!isLimitError(error)) {
+                throw error;
+              }
+              hitLimit = true;
+              break;
+            }
           }
+
+          // 못 옮긴 것이 남아 있어도 세션은 비운다. 남겨 두면 새로고침할
+          // 때마다 같은 거절을 반복하고, 그때마다 오류 배너가 다시 뜬다.
           clearSession();
 
           if (alive) {
             setChannels([...stored, ...moved]);
             setLoaded(true);
+            if (hitLimit) {
+              setProblem("limit");
+            }
           }
           return;
         }
@@ -259,16 +300,25 @@ export function ChannelStoreProvider({ children }: { children: ReactNode }) {
     (work: () => Promise<void>) => {
       const snapshot = previous.current;
 
-      void work().catch(() => {
-        setProblem("save");
+      void work().catch((error: unknown) => {
+        setProblem(isLimitError(error) ? "limit" : "save");
         setChannels(snapshot);
       });
     },
     [],
   );
 
+  // 한도는 화면에서도 막는다. DB 트리거가 최종 판정이지만, 거기까지 가면
+  // 폼을 다 채우고 저장을 누른 뒤에야 되돌아간다.
+  const atLimit = limit !== null && channels.length >= limit;
+
   const add = useCallback(
     (channel: Channel) => {
+      if (limit !== null && previous.current.length >= limit) {
+        setProblem("limit");
+        return;
+      }
+
       setChannels((list) => [...list, channel]);
 
       if (!signedIn || user === null) {
@@ -284,7 +334,7 @@ export function ChannelStoreProvider({ children }: { children: ReactNode }) {
         );
       });
     },
-    [signedIn, user, client, runWrite],
+    [signedIn, user, client, runWrite, limit],
   );
 
   const update = useCallback(
@@ -322,13 +372,26 @@ export function ChannelStoreProvider({ children }: { children: ReactNode }) {
       channels,
       loaded,
       persistent,
+      limit,
+      atLimit,
       problem,
       dismissProblem,
       add,
       update,
       remove,
     }),
-    [channels, loaded, persistent, problem, dismissProblem, add, update, remove],
+    [
+      channels,
+      loaded,
+      persistent,
+      limit,
+      atLimit,
+      problem,
+      dismissProblem,
+      add,
+      update,
+      remove,
+    ],
   );
 
   return <Context.Provider value={value}>{children}</Context.Provider>;

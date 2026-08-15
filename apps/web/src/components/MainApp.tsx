@@ -8,6 +8,7 @@ import { useAuth } from "@/lib/auth";
 import { useChannels } from "@/lib/channel-store";
 import { useT } from "@/lib/i18n";
 import type { Dictionary } from "@/lib/i18n";
+import { useProfile } from "@/lib/profile";
 import {
   readPushState,
   registerServiceWorker,
@@ -24,6 +25,7 @@ import { ResetPasswordDialog } from "./ResetPasswordDialog";
 import { ChannelForm } from "./ChannelForm";
 import { Icon } from "./Icon";
 import { LanguageToggle } from "./LanguageToggle";
+import { PlanBadge } from "./PlanBadge";
 
 type View =
   | { kind: "list" }
@@ -82,8 +84,18 @@ function usePush(signedIn: boolean) {
 export function MainApp() {
   const t = useT();
   const { user, signOut, recovering } = useAuth();
-  const { channels, loaded, problem, dismissProblem, add, update, remove } =
-    useChannels();
+  const { plan, isAdmin } = useProfile();
+  const {
+    channels,
+    loaded,
+    limit,
+    atLimit,
+    problem,
+    dismissProblem,
+    add,
+    update,
+    remove,
+  } = useChannels();
   const [view, setView] = useState<View>({ kind: "list" });
   const [auth, setAuth] = useState<"login" | "signup" | null>(null);
   const [pendingRemove, setPendingRemove] = useState<Channel | null>(null);
@@ -107,20 +119,32 @@ export function MainApp() {
   return (
     <div className="flex min-h-screen flex-col">
       <header className="sticky top-0 z-40 border-b border-white/5 bg-surface/80 backdrop-blur-md">
-        <div className="mx-auto flex w-full max-w-5xl items-center justify-between px-4 py-4 md:px-6">
+        <div className="mx-auto flex w-full max-w-5xl items-center justify-between gap-2 px-4 py-4 md:px-6">
           <button
             type="button"
             onClick={() => setView({ kind: "list" })}
-            className="text-headline font-bold text-primary transition-opacity hover:opacity-80"
+            className="shrink-0 text-title font-bold text-primary transition-opacity hover:opacity-80 sm:text-headline"
           >
             {t.brand}
           </button>
 
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 items-center gap-1 sm:gap-2">
             <LanguageToggle />
 
             {signedIn ? (
               <>
+                {/*
+                  관리자 링크. 감추는 것은 편의일 뿐이고 실제 방어는 DB의
+                  is_admin() 검사다 — 주소를 직접 쳐도 RPC가 거절한다.
+                */}
+                {isAdmin ? (
+                  <a
+                    href="/admin"
+                    className="label shrink-0 whitespace-nowrap rounded-lg px-2 py-2 text-warm transition-opacity hover:opacity-80 sm:px-3"
+                  >
+                    {t.nav.admin}
+                  </a>
+                ) : null}
                 <button
                   type="button"
                   onClick={() => setMyPageOpen(true)}
@@ -132,14 +156,16 @@ export function MainApp() {
                 <button
                   type="button"
                   onClick={() => setMyPageOpen(true)}
-                  className="hidden max-w-[14rem] truncate px-2 text-body-sm text-on-surface-variant transition-colors hover:text-primary sm:block"
+                  className="hidden max-w-[16rem] items-center gap-2 px-2 text-body-sm text-on-surface-variant transition-colors hover:text-primary sm:flex"
                 >
-                  {user.email}
+                  <span className="truncate">{user.email}</span>
+                  {/* 관리자는 이미 왼쪽에 관리자 링크가 있어 배지가 겹친다. */}
+                  {isAdmin ? null : <PlanBadge plan={plan} />}
                 </button>
                 <button
                   type="button"
                   onClick={() => void signOut()}
-                  className="label px-4 py-2 text-on-surface-variant transition-colors hover:text-primary"
+                  className="label shrink-0 whitespace-nowrap px-2 py-2 text-on-surface-variant transition-colors hover:text-primary sm:px-4"
                 >
                   {t.nav.logout}
                 </button>
@@ -149,14 +175,14 @@ export function MainApp() {
                 <button
                   type="button"
                   onClick={() => setAuth("login")}
-                  className="label px-4 py-2 text-on-surface-variant transition-colors hover:text-primary"
+                  className="label shrink-0 whitespace-nowrap px-2 py-2 text-on-surface-variant transition-colors hover:text-primary sm:px-4"
                 >
                   {t.nav.login}
                 </button>
                 <button
                   type="button"
                   onClick={() => setAuth("signup")}
-                  className="label rounded-lg bg-primary-container px-6 py-2 font-bold text-on-primary-container transition-all hover:opacity-90"
+                  className="label shrink-0 whitespace-nowrap rounded-lg bg-primary-container px-3 py-2 font-bold text-on-primary-container transition-all hover:opacity-90 sm:px-6"
                 >
                   {t.nav.signup}
                 </button>
@@ -170,7 +196,11 @@ export function MainApp() {
         {problem === null ? null : (
           <div className="flex items-start justify-between gap-4 rounded-lg border border-danger/30 bg-danger/5 p-4">
             <p className="text-body-sm text-danger">
-              {problem === "load" ? t.store.loadFailed : t.store.saveFailed}
+              {problem === "load"
+                ? t.store.loadFailed
+                : problem === "limit"
+                  ? t.store.limitReached
+                  : t.store.saveFailed}
             </p>
             <button
               type="button"
@@ -185,10 +215,12 @@ export function MainApp() {
 
         {view.kind === "list" ? (
           <>
-            <section className="rounded-xl border border-white/5 bg-surface-low p-6">
+            <section className="rounded-xl border border-white/5 bg-surface-low p-4 sm:p-6">
               <div className="flex flex-col justify-between gap-6 md:flex-row md:items-center">
                 <div>
-                  <h1 className="text-display">{t.hero.title}</h1>
+                  <h1 className="text-headline sm:text-display">
+                    {t.hero.title}
+                  </h1>
                   <p className="mt-1 text-body-sm text-on-surface-variant">
                     {t.hero.body}
                   </p>
@@ -217,7 +249,19 @@ export function MainApp() {
               hasChannels={channels.length > 0}
             />
 
-            <div className="flex items-end justify-between gap-4 border-b border-white/5 pb-4">
+            {/*
+              한도에 닿았을 때만 뜬다. 상시로 보여 주면 세 개를 다 쓰기
+              전까지는 팔 것도 없는 광고가 화면에 붙어 있게 된다.
+            */}
+            {atLimit && tab.kind === "channels" && loaded ? (
+              <UpgradeNotice t={t} signedIn={signedIn} />
+            ) : null}
+
+            {/*
+              좁은 화면에서는 탭과 만들기 버튼을 위아래로 쌓는다. 한 줄에
+              두면 영어 라벨에서 버튼이 밀려 나간다.
+            */}
+            <div className="flex flex-col gap-4 border-b border-white/5 pb-4 sm:flex-row sm:items-end sm:justify-between">
               <div className="min-w-0">
                 <div className="flex items-center gap-1" role="tablist">
                   <TabButton
@@ -235,20 +279,39 @@ export function MainApp() {
                     badge={unseen}
                   />
                 </div>
-                <p className="mt-2 truncate text-body-sm text-on-surface-variant">
-                  {tab.kind === "channels"
-                    ? t.list.subtitle
-                    : filteredChannelName === null
-                      ? t.alerts.subtitle
-                      : t.alerts.forChannel(filteredChannelName)}
-                </p>
+                <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <p className="truncate text-body-sm text-on-surface-variant">
+                    {tab.kind === "channels"
+                      ? t.list.subtitle
+                      : filteredChannelName === null
+                        ? t.alerts.subtitle
+                        : t.alerts.forChannel(filteredChannelName)}
+                  </p>
+
+                  {/*
+                    남은 자리를 목록 옆에 붙여 둔다. 한도는 만들기를 누른
+                    뒤가 아니라 누르기 전에 보여야 한다.
+                  */}
+                  {tab.kind === "channels" && loaded ? (
+                    <span
+                      className={`font-mono text-body-sm ${
+                        atLimit ? "text-warm" : "text-on-surface-variant"
+                      }`}
+                    >
+                      {limit === null
+                        ? t.plan.channelUnlimited(channels.length)
+                        : t.plan.channelUsage(channels.length, limit)}
+                    </span>
+                  ) : null}
+                </div>
               </div>
 
               {tab.kind === "channels" ? (
                 <button
                   type="button"
                   onClick={() => setView({ kind: "create" })}
-                  className="flex shrink-0 items-center gap-1 rounded-lg bg-primary-container px-6 py-4 font-bold text-on-primary-container transition-all hover:brightness-110"
+                  disabled={atLimit}
+                  className="flex shrink-0 items-center justify-center gap-1 rounded-lg bg-primary-container px-6 py-3 font-bold text-on-primary-container transition-all hover:brightness-110 disabled:opacity-40 disabled:hover:brightness-100 sm:py-4"
                 >
                   <Icon name="plus" size={18} />
                   {t.list.create}
@@ -257,7 +320,7 @@ export function MainApp() {
                 <button
                   type="button"
                   onClick={() => setTab({ kind: "alerts" })}
-                  className="label shrink-0 rounded-lg border border-white/10 px-4 py-2 text-on-surface-variant transition-colors hover:text-primary"
+                  className="label shrink-0 self-start rounded-lg border border-white/10 px-4 py-2 text-on-surface-variant transition-colors hover:text-primary sm:self-auto"
                 >
                   {t.alerts.backToAll}
                 </button>
@@ -267,7 +330,7 @@ export function MainApp() {
             {tab.kind === "alerts" ? (
               <AlertHistory signedIn={signedIn} channelId={tab.channelId} />
             ) : !loaded ? null : channels.length === 0 ? (
-              <div className="card mx-auto flex max-w-md flex-col items-center rounded-xl border-dashed p-12 text-center">
+              <div className="card mx-auto flex max-w-md flex-col items-center rounded-xl border-dashed p-8 text-center sm:p-12">
                 <span className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-surface-high text-primary">
                   <Icon name="chart" size={32} />
                 </span>
@@ -390,6 +453,29 @@ function TabButton({
   );
 }
 
+/**
+ * 무료 한도에 닿았을 때.
+ *
+ * 결제가 아직 없으므로 버튼 대신 안내만 둔다. 누르면 아무 일도 없는
+ * "업그레이드" 버튼은 눌러 본 사람에게 서비스가 고장 난 것처럼 보인다.
+ * 게스트에게는 로그인을 먼저 권한다 — 계정 없이 올릴 수 있는 것이 없다.
+ */
+function UpgradeNotice({ t, signedIn }: { t: Dictionary; signedIn: boolean }) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-4 rounded-lg border border-warm/30 bg-warm/5 p-4">
+      <div className="min-w-0 flex-1">
+        <p className="label text-warm">{t.plan.upgradeTitle}</p>
+        <p className="mt-1 text-body-sm text-on-surface-variant">
+          {t.plan.upgradeBody}
+        </p>
+      </div>
+      <p className="shrink-0 text-body-sm text-on-surface-variant">
+        {signedIn ? t.plan.upgradeSoon : t.notification.loginRequired}
+      </p>
+    </div>
+  );
+}
+
 function NotificationNotice({
   t,
   state,
@@ -444,15 +530,15 @@ function NotificationNotice({
   }
 
   return (
-    <div className="flex items-center justify-between gap-4 rounded-lg border border-primary/30 bg-primary/5 p-4">
-      <p className="text-body-sm text-on-surface-variant">
+    <div className="flex flex-wrap items-center justify-between gap-4 rounded-lg border border-primary/30 bg-primary/5 p-4">
+      <p className="min-w-0 flex-1 text-body-sm text-on-surface-variant">
         {t.notification.prompt}
       </p>
       <button
         type="button"
         onClick={onEnable}
         disabled={busy}
-        className="label shrink-0 rounded-lg bg-primary-container px-6 py-2 font-bold text-on-primary-container transition-all hover:opacity-90 disabled:opacity-50"
+        className="label shrink-0 rounded-lg bg-primary-container px-6 py-3 font-bold text-on-primary-container transition-all hover:opacity-90 disabled:opacity-50"
       >
         {busy ? t.notification.enabling : t.notification.enable}
       </button>

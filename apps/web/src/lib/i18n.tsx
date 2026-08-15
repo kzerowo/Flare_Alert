@@ -30,12 +30,30 @@ const ko = {
     signup: "회원가입",
     logout: "로그아웃",
     language: "언어",
+    admin: "관리자",
+    home: "홈으로",
   },
 
   store: {
     loadFailed: "저장된 채널을 불러오지 못했습니다. 새로고침해 주세요.",
     saveFailed: "저장하지 못했습니다. 방금 바꾼 내용은 되돌렸습니다.",
+    limitReached:
+      "무료 플랜의 채널 수 한도에 닿았습니다. Pro로 올리면 제한 없이 만들 수 있습니다.",
     dismiss: "닫기",
+  },
+
+  plan: {
+    free: "무료",
+    pro: "Pro",
+    admin: "관리자",
+    /** "채널 2 / 3" — 남은 자리를 한눈에. */
+    channelUsage: (used: number, limit: number) => `채널 ${used} / ${limit}`,
+    channelUnlimited: (used: number) => `채널 ${used}개 · 제한 없음`,
+    upgradeTitle: "Pro로 올리기",
+    upgradeBody: "무료 플랜은 채널 3개까지입니다. Pro는 제한이 없습니다.",
+    upgradeSoon: "결제는 아직 준비 중입니다. 곧 열립니다.",
+    expiresAt: (date: string) => `${date}까지`,
+    current: "현재 플랜",
   },
 
   hero: {
@@ -259,6 +277,43 @@ const ko = {
       "채널과 알림 기록을 포함해 모든 데이터가 즉시 삭제됩니다. 이 작업은 되돌릴 수 없습니다.",
   },
 
+  admin: {
+    title: "관리자",
+    subtitle: "회원 요금제와 서비스 상태를 봅니다.",
+    forbiddenTitle: "권한이 없습니다",
+    forbiddenBody: "이 페이지는 관리자만 볼 수 있습니다.",
+    backHome: "홈으로",
+
+    statTotalUsers: "전체 회원",
+    statProUsers: "Pro 회원",
+    statChannels: "전체 채널",
+    statEnabledChannels: "켜진 채널",
+    statSubscriptions: "푸시 구독",
+    statAlerts24h: "24시간 알림",
+
+    searchPlaceholder: "이메일로 검색",
+    refresh: "새로고침",
+    loading: "불러오는 중...",
+    loadFailed: "목록을 불러오지 못했습니다.",
+    empty: "해당하는 회원이 없습니다.",
+    resultCount: (n: number) => `${n}명`,
+
+    colUser: "회원",
+    colPlan: "플랜",
+    colChannels: "채널",
+    colAlerts: "알림",
+    colJoined: "가입",
+    colAction: "변경",
+
+    toPro: "Pro로",
+    toFree: "무료로",
+    working: "처리 중...",
+    changeFailed: "요금제를 바꾸지 못했습니다.",
+    downgradeNote:
+      "무료로 내리면 한도를 넘는 채널은 오래된 것부터 남기고 꺼집니다. 지워지지는 않습니다.",
+    adminRowNote: "관리자는 항상 Pro입니다. 권한은 여기서 바꿀 수 없습니다.",
+  },
+
   footer: {
     note: "알림은 유동성이 몰렸다는 사실만 알려줍니다. 가격이 오를지 내릴지는 알려주지 않으며, 투자 판단은 본인 몫입니다.",
   },
@@ -294,12 +349,31 @@ const en: Dictionary = {
     signup: "Sign up",
     logout: "Log out",
     language: "Language",
+    admin: "Admin",
+    home: "Back home",
   },
 
   store: {
     loadFailed: "Could not load your saved channels. Please refresh.",
     saveFailed: "Could not save. Your last change has been rolled back.",
+    limitReached:
+      "You've reached the Free plan's channel limit. Pro removes it entirely.",
     dismiss: "Dismiss",
+  },
+
+  plan: {
+    free: "Free",
+    pro: "Pro",
+    admin: "Admin",
+    channelUsage: (used: number, limit: number) =>
+      `${used} / ${limit} channels`,
+    channelUnlimited: (used: number) =>
+      used === 1 ? "1 channel · unlimited" : `${used} channels · unlimited`,
+    upgradeTitle: "Upgrade to Pro",
+    upgradeBody: "Free gives you 3 channels. Pro has no limit.",
+    upgradeSoon: "Billing isn't open yet — coming soon.",
+    expiresAt: (date: string) => `until ${date}`,
+    current: "Current plan",
   },
 
   hero: {
@@ -525,6 +599,43 @@ const en: Dictionary = {
     deleteConfirmTitle: "Delete your account?",
     deleteConfirmBody:
       "All your data — channels and alert history included — is deleted immediately. This cannot be undone.",
+  },
+
+  admin: {
+    title: "Admin",
+    subtitle: "Member plans and service health.",
+    forbiddenTitle: "Not authorized",
+    forbiddenBody: "This page is for admins only.",
+    backHome: "Back home",
+
+    statTotalUsers: "Members",
+    statProUsers: "Pro members",
+    statChannels: "Channels",
+    statEnabledChannels: "Enabled",
+    statSubscriptions: "Push subs",
+    statAlerts24h: "Alerts (24h)",
+
+    searchPlaceholder: "Search by email",
+    refresh: "Refresh",
+    loading: "Loading...",
+    loadFailed: "Could not load the member list.",
+    empty: "No members match.",
+    resultCount: (n: number) => (n === 1 ? "1 member" : `${n} members`),
+
+    colUser: "Member",
+    colPlan: "Plan",
+    colChannels: "Channels",
+    colAlerts: "Alerts",
+    colJoined: "Joined",
+    colAction: "Change",
+
+    toPro: "To Pro",
+    toFree: "To Free",
+    working: "Working...",
+    changeFailed: "Could not change the plan.",
+    downgradeNote:
+      "Downgrading keeps the oldest channels up to the limit and switches off the rest. Nothing is deleted.",
+    adminRowNote: "Admins are always Pro. Roles can't be changed here.",
   },
 
   footer: {

@@ -4,9 +4,12 @@ import { useState } from "react";
 
 import { useAuth } from "@/lib/auth";
 import type { AuthProblem } from "@/lib/auth";
+import { useChannels } from "@/lib/channel-store";
 import { useT } from "@/lib/i18n";
+import { useProfile } from "@/lib/profile";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { Icon } from "./Icon";
+import { PlanBadge } from "./PlanBadge";
 
 interface Props {
   onClose: () => void;
@@ -26,6 +29,8 @@ interface Props {
 export function MyPageDialog({ onClose }: Props) {
   const t = useT();
   const { user, updateEmail, deleteAccount, signOut } = useAuth();
+  const { plan, membership, channelLimit } = useProfile();
+  const { channels } = useChannels();
 
   const [email, setEmail] = useState(user?.email ?? "");
   const [emailBusy, setEmailBusy] = useState(false);
@@ -78,11 +83,11 @@ export function MyPageDialog({ onClose }: Props) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/70 p-4 backdrop-blur-sm"
       onClick={onClose}
     >
       <div
-        className="panel w-full max-w-md rounded-xl p-12 shadow-2xl"
+        className="panel my-auto w-full max-w-md rounded-xl p-6 shadow-2xl sm:p-12"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-start justify-between">
@@ -96,22 +101,50 @@ export function MyPageDialog({ onClose }: Props) {
           <button
             type="button"
             onClick={onClose}
-            className="text-on-surface-variant transition-colors hover:text-primary"
+            className="-m-2 shrink-0 rounded-lg p-2 text-on-surface-variant transition-colors hover:text-primary"
             aria-label={t.auth.close}
           >
             <Icon name="close" size={20} />
           </button>
         </div>
 
+        {/* 요금제 */}
+        <section className="mt-8 rounded-lg border border-white/5 bg-sunken p-4 sm:mt-12">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="label text-on-surface-variant">
+              {t.plan.current}
+            </span>
+            <PlanBadge plan={plan} admin={membership.role === "admin"} />
+          </div>
+          <p className="mt-2 font-mono text-body-sm text-on-surface-variant">
+            {channelLimit === null
+              ? t.plan.channelUnlimited(channels.length)
+              : t.plan.channelUsage(channels.length, channelLimit)}
+          </p>
+          {/* 결제가 아직 없으므로 올리는 방법은 안내만 한다. */}
+          {plan === "free" ? (
+            <p className="mt-2 text-body-sm text-on-surface-variant">
+              {t.plan.upgradeBody} {t.plan.upgradeSoon}
+            </p>
+          ) : null}
+        </section>
+
         {/* 이메일 */}
-        <section className="mt-12 space-y-1">
+        <section className="mt-8 space-y-1">
           <label
             htmlFor="mypage-email"
             className="label block px-1 text-on-surface-variant"
           >
             {t.auth.email}
           </label>
-          <form className="flex gap-2" onSubmit={submitEmail}>
+          {/*
+            좁은 화면에서는 저장 버튼을 아래로 내린다. 한 줄에 두면 주소를
+            읽을 만큼의 폭이 입력란에 남지 않는다.
+          */}
+          <form
+            className="flex flex-col gap-2 sm:flex-row"
+            onSubmit={submitEmail}
+          >
             <div className="group relative flex-grow">
               <span className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant transition-colors group-focus-within:text-primary">
                 <Icon name="mail" size={18} />
@@ -132,7 +165,7 @@ export function MyPageDialog({ onClose }: Props) {
             <button
               type="submit"
               disabled={!emailChanged || emailBusy}
-              className="label shrink-0 rounded-lg bg-primary-container px-4 font-bold text-on-primary-container transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+              className="label h-12 shrink-0 rounded-lg bg-primary-container px-4 font-bold text-on-primary-container transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40 sm:h-auto"
             >
               {emailBusy ? t.auth.working : t.myPage.saveEmail}
             </button>
