@@ -83,7 +83,8 @@ function usePush(signedIn: boolean) {
 
 export function MainApp() {
   const t = useT();
-  const { user, signOut, recovering } = useAuth();
+  // loaded는 채널 저장소에도 있는 이름이라 여기서 갈라 둔다.
+  const { user, loaded: authLoaded, signOut, recovering } = useAuth();
   const { plan, isAdmin } = useProfile();
   const {
     channels,
@@ -100,6 +101,60 @@ export function MainApp() {
   const [auth, setAuth] = useState<"login" | "signup" | null>(null);
   const [pendingRemove, setPendingRemove] = useState<Channel | null>(null);
   const [myPageOpen, setMyPageOpen] = useState(false);
+
+  /*
+   * 랜딩(/)에서 무엇을 누르고 넘어왔는지.
+   *
+   * 소개 페이지에는 인증 창도 채널 만들기 화면도 없다. 그것들을 띄우려면
+   * AuthProvider와 채널 저장소를 소개 페이지까지 끌고 가야 하는데, 그러자고
+   * 소개 화면이 로그인 상태를 알 이유는 없다. 대신 주소에 표시를 붙여
+   * 보내고 여기서 열어 준다.
+   *
+   * ?auth=login|signup → 로그인/가입 창
+   * ?new=1             → 채널 만들기 (민감도 테스트가 그 안에 있다)
+   */
+  const [pendingAuth, setPendingAuth] = useState<"login" | "signup" | null>(
+    null,
+  );
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const requested = params.get("auth");
+    const wantsNew = params.get("new") === "1";
+
+    if (requested !== "login" && requested !== "signup" && !wantsNew) {
+      return;
+    }
+
+    if (requested === "login" || requested === "signup") {
+      setPendingAuth(requested);
+    }
+    if (wantsNew) {
+      setView({ kind: "create" });
+    }
+
+    // 표시는 한 번만 쓴다. 남겨 두면 새로고침할 때마다 같은 화면이 뜬다.
+    params.delete("auth");
+    params.delete("new");
+    const query = params.toString();
+    window.history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}${query === "" ? "" : `?${query}`}`,
+    );
+  }, []);
+
+  // 이미 로그인한 사람에게는 열지 않는다. 세션을 읽기 전에 판단하면
+  // 로그인 상태인데도 로그인 창이 잠깐 떴다가 사라진다.
+  useEffect(() => {
+    if (pendingAuth === null || !authLoaded) {
+      return;
+    }
+    if (user === null) {
+      setAuth(pendingAuth);
+    }
+    setPendingAuth(null);
+  }, [pendingAuth, authLoaded, user]);
 
   const signedIn = user !== null;
   const push = usePush(signedIn);
@@ -385,7 +440,14 @@ export function MainApp() {
 
       <footer className="border-t border-white/5 bg-sunken">
         <div className="mx-auto w-full max-w-5xl px-4 py-6 md:px-6">
-          <span className="text-title font-bold">{t.brand}</span>
+          {/* 소개 페이지로 돌아가는 유일한 길. 머리말의 로고는 앱 안에서
+              목록으로 되돌리는 역할이라 여기에 둔다. */}
+          <a
+            href="/"
+            className="text-title font-bold transition-colors hover:text-primary"
+          >
+            {t.brand}
+          </a>
           <p className="mt-1 text-body-sm text-on-surface-variant">
             {t.footer.note}
           </p>

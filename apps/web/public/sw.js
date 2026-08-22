@@ -78,7 +78,8 @@ self.addEventListener("push", (event) => {
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
 
-  const target = event.notification.data?.url ?? "/";
+  // "/"는 서비스 소개 페이지다. 알림을 눌러 소개를 읽고 싶은 사람은 없다.
+  const target = event.notification.data?.url ?? "/app";
 
   event.waitUntil(
     self.clients

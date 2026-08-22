@@ -124,7 +124,7 @@ export function AdminPage() {
         <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-2 px-4 py-4 md:px-6">
           <div className="flex min-w-0 items-baseline gap-2">
             <a
-              href="/"
+              href="/app"
               className="shrink-0 text-title font-bold text-primary transition-opacity hover:opacity-80 sm:text-headline"
             >
               {t.brand}
@@ -137,7 +137,7 @@ export function AdminPage() {
           <div className="flex shrink-0 items-center gap-1 sm:gap-2">
             <LanguageToggle />
             <a
-              href="/"
+              href="/app"
               className="label shrink-0 whitespace-nowrap px-2 py-2 text-on-surface-variant transition-colors hover:text-primary sm:px-4"
             >
               {t.nav.home}
@@ -227,7 +227,7 @@ function Forbidden({ t }: { t: Dictionary }) {
         {t.admin.forbiddenBody}
       </p>
       <a
-        href="/"
+        href="/app"
         className="label rounded-lg border border-primary/30 bg-primary/10 px-6 py-3 font-bold text-primary transition-all hover:bg-primary/20"
       >
         {t.admin.backHome}

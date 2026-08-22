@@ -329,6 +329,177 @@ const ko = {
   } as Record<Timeframe, string>,
 
   /** "1분봉급" — 사건 규모를 가리킬 때. */
+  // -------------------------------------------------------------------------
+  // 랜딩(/) 전용 문구
+  //
+  // 앱 안에서 쓰는 문구와 어휘를 일부러 다르게 잡았다. 앱은 이미 무엇을
+  // 하는 서비스인지 아는 사람이 보는 화면이고, 여기는 "거래대금"이라는
+  // 말조차 처음인 사람이 보는 화면이다.
+  // -------------------------------------------------------------------------
+  landing: {
+    nav: {
+      how: "작동 방식",
+      pricing: "요금제",
+      faq: "질문",
+      login: "로그인",
+      start: "무료로 시작",
+    },
+
+    hero: {
+      eyebrow: "바이낸스 USD-M 무기한 선물 · 매초 감시",
+      title: "급등 거래량 알림",
+      body: "가격이 아니라 거래대금을 봅니다. 기준은 코인마다 다른 '평소 거래대금'입니다.",
+      start: "무료로 시작하기",
+      browse: "가입 없이 둘러보기",
+      note: "카드 등록 없음 · 채널 3개까지 무료",
+    },
+
+    tape: {
+      title: "지금 이런 일이 일어나면",
+      median: "평소 수준",
+      barLabel: "1분당 거래대금",
+      alertTitle: "거래대금 급증",
+      alertBody: (symbol: string, ratio: string) =>
+        `${symbol} · 평소의 ${ratio}배가 1분 만에`,
+      quiet: "조용한 동안에는 아무것도 오지 않습니다",
+    },
+
+    why: {
+      title: "차트를 하루 종일 지킬 수는 없습니다",
+      body: "24시간 서버가 매초 감지합니다.",
+      items: [
+        {
+          title: "\"거래량 100억\" 같은 기준은 종목마다 무의미합니다",
+          body: "비트코인의 평범한 1분이 소형 코인에게는 역대급입니다. 같은 숫자를 모든 종목에 들이대면 큰 종목만 계속 울립니다.",
+        },
+        {
+          title: "봉이 마감될 때까지 기다리면 늦습니다",
+          body: "체결 하나하나를 받아 1초 단위로 쌓습니다. 캔들이 닫히기를 기다리지 않고 바로 판정합니다.",
+        },
+        {
+          title: "한 사건에는 알림도 하나여야 합니다",
+          body: "급증이 이어지는 동안 알림이 계속 쏟아지지 않습니다. 사건이 끝날 때까지를 한 번으로 묶어 보냅니다.",
+        },
+      ],
+    },
+
+    how: {
+      title: "간단한 채널 등록",
+      body: "코인 하나, 민감도 하나만 정하면 됩니다.",
+      steps: [
+        {
+          step: "01",
+          title: "코인을 고릅니다",
+          body: "채널 하나가 코인 하나를 봅니다. 알림이 왔을 때 어느 코인 얘기인지 헷갈릴 일이 없습니다.",
+        },
+        {
+          step: "02",
+          title: "민감도를 정합니다",
+          body: "1부터 100까지 한 칸씩. 움직이는 즉시 하루에 몇 번쯤 울릴지 알려 드립니다.",
+        },
+        {
+          step: "03",
+          title: "알림을 켭니다",
+          body: "브라우저 알림이라 탭을 닫아도 도착합니다. 따로 앱을 깔지 않아도 됩니다.",
+        },
+      ],
+    },
+
+    slider: {
+      badge: "직접 움직여 보세요",
+      title: "민감도를 설정해 보세요",
+    },
+
+    ratio: {
+      title: "코인 크기와 상관없이 같은 기준",
+      body: "덩치가 100배 차이 나는 두 코인도, \"평소보다 몇 배\"라는 잣대는 똑같이 적용됩니다.",
+      normalLabel: "평소",
+      spikeLabel: "급증",
+      verdict: "같은 기준 · 둘 다 알림",
+      bigName: "큰 종목",
+      smallName: "작은 종목",
+    },
+
+    test: {
+      title: "원하는 민감도를 찾으세요",
+      body: "실제 과거 차트를 보여 드립니다. 알림을 받고 싶었을 것 같은 막대를 손으로 클릭하기만 하면, 그 선택을 거꾸로 풀어 당신에게 맞는 민감도를 찾아 드립니다.",
+      cta: "민감도 테스트부터 해보기",
+      steps: ["차트를 봅니다", "원하는 막대를 누릅니다", "민감도가 정해집니다"],
+    },
+
+    honest: {
+      title: "이 알림이 하지 않는 일",
+      items: [
+        {
+          title: "가격 방향을 예측하지 않습니다",
+          body: "돈이 몰렸다는 사실만 알려 드립니다. 그 뒤에 오를지 내릴지는 재어 보면 거의 반반이었고, 그렇게 말씀드리는 것이 맞습니다.",
+        },
+        {
+          title: "매매 신호가 아닙니다",
+          body: "무엇을 사고팔지는 알려 드리지 않습니다. \"지금 여기를 한 번 볼 만하다\"까지가 이 서비스의 몫입니다.",
+        },
+      ],
+    },
+
+    pricing: {
+      title: "요금제",
+      body: "먼저 무료로 써 보고 판단하세요.",
+      freeName: "무료",
+      freePrice: "₩0",
+      freePeriod: "",
+      freeItems: [
+        "채널 3개",
+        "웹 푸시 알림",
+        "알림 기록 보관",
+        "민감도 테스트",
+      ],
+      freeCta: "무료로 시작하기",
+      proName: "Pro",
+      proPrice: "$4",
+      proPeriod: " / 월",
+      proItems: ["채널 무제한", "무료 플랜의 모든 기능", "우선 지원"],
+      proCta: "곧 열립니다",
+      proNote: "결제는 아직 준비 중입니다. 그때까지는 무료 플랜으로 쓰실 수 있습니다.",
+      popular: "준비 중",
+    },
+
+    faq: {
+      title: "자주 묻는 질문",
+      items: [
+        {
+          q: "어떤 코인을 볼 수 있나요?",
+          a: "시가총액 상위 13개 종목입니다. BTC, ETH, BNB, XRP, SOL처럼 바이낸스 USD-M 무기한 선물에서 충분히 활발하게 거래되는 종목만 올렸습니다. 거래가 뜸한 종목은 평소 기준 자체가 흔들려서 알림이 미덥지 않습니다.",
+        },
+        {
+          q: "거래소 API 키가 필요한가요?",
+          a: "필요 없습니다. 공개된 시세만 읽습니다. 주문을 내지 않으므로 여러분의 계좌에 접근할 이유가 없고, 접근할 방법도 없습니다.",
+        },
+        {
+          q: "가입하지 않아도 쓸 수 있나요?",
+          a: "채널을 만들어 보는 것까지는 가입 없이 됩니다. 다만 그렇게 만든 채널은 탭을 닫으면 사라지고, 알림도 받을 수 없습니다. 보낼 곳이 있어야 보낼 수 있기 때문입니다.",
+        },
+        {
+          q: "앱을 깔아야 하나요?",
+          a: "아니요. 브라우저 알림이라 탭을 닫아도 브라우저가 켜져 있는 동안 도착합니다. 아이폰·안드로이드 앱은 그다음 순서로 준비하고 있습니다.",
+        },
+        {
+          q: "알림이 너무 많이 오면 어떻게 하나요?",
+          a: "민감도를 낮추면 됩니다. 조절기를 움직이는 즉시 하루 몇 번으로 바뀌는지 보여 드리므로, 며칠 겪어 보고 고치는 과정이 필요 없습니다.",
+        },
+      ],
+    },
+
+    final: {
+      title: "다음 급증은 기다리지 않고 받으세요",
+      start: "무료로 시작하기",
+    },
+
+    footer: {
+      tagline: "크립토 유동성 알림",
+      app: "앱 열기",
+    },
+  },
+
   frameScale: {
     "1m": "1분봉급",
     "5m": "5분봉급",
@@ -649,6 +820,170 @@ const en: Dictionary = {
     "1h": "1h",
     "4h": "4h",
     "1d": "1d",
+  },
+
+  landing: {
+    nav: {
+      how: "How it works",
+      pricing: "Pricing",
+      faq: "FAQ",
+      login: "Log in",
+      start: "Start free",
+    },
+
+    hero: {
+      eyebrow: "Binance USD-M perpetual futures · watched every second",
+      title: "Volume Spike Alerts",
+      body: "We watch turnover, not price. The baseline is each coin's own normal turnover.",
+      start: "Start free",
+      browse: "Look around without signing up",
+      note: "No card · 3 channels free",
+    },
+
+    tape: {
+      title: "When this happens",
+      median: "Normal level",
+      barLabel: "Turnover per minute",
+      alertTitle: "Turnover spike",
+      alertBody: (symbol: string, ratio: string) =>
+        `${symbol} · ${ratio}x its normal, in one minute`,
+      quiet: "While it is quiet, nothing arrives",
+    },
+
+    why: {
+      title: "You cannot watch the chart all day",
+      body: "The server watches every second, around the clock.",
+      items: [
+        {
+          title: "A fixed volume number means nothing across coins",
+          body: "An ordinary minute on Bitcoin is a record minute on a small cap. One absolute threshold for everything means only the big names ever fire.",
+        },
+        {
+          title: "Waiting for the candle to close is too late",
+          body: "Every trade is bucketed by the second. The decision is made right there, without waiting for a candle to finish.",
+        },
+        {
+          title: "One event should mean one alert",
+          body: "Alerts do not pour in while a spike is still running. The whole event is grouped and sent once.",
+        },
+      ],
+    },
+
+    how: {
+      title: "Simple channel setup",
+      body: "Just a coin and a sensitivity.",
+      steps: [
+        {
+          step: "01",
+          title: "Pick a coin",
+          body: "One channel watches one coin, so an alert never leaves you guessing which coin it was about.",
+        },
+        {
+          step: "02",
+          title: "Set the sensitivity",
+          body: "A single 1-to-100 dial. It tells you how many alerts a day that means the moment you move it.",
+        },
+        {
+          step: "03",
+          title: "Turn on notifications",
+          body: "Browser push, so alerts arrive even with the tab closed. Nothing to install.",
+        },
+      ],
+    },
+
+    slider: {
+      badge: "Try it here",
+      title: "Set your sensitivity",
+    },
+
+    ratio: {
+      title: "The same rule, any coin size",
+      body: "Even two coins a hundred times apart in size are judged by the same yardstick: how many times their own normal.",
+      normalLabel: "Normal",
+      spikeLabel: "Spike",
+      verdict: "Same rule · both alert",
+      bigName: "Large coin",
+      smallName: "Small coin",
+    },
+
+    test: {
+      title: "Find your sensitivity",
+      body: "We show you real historical charts. Click the bars you would have wanted an alert on, and we work backwards from your clicks to the sensitivity that matches you.",
+      cta: "Start with the sensitivity test",
+      steps: ["Look at a chart", "Click the bars you want", "Get your sensitivity"],
+    },
+
+    honest: {
+      title: "What this alert does not do",
+      items: [
+        {
+          title: "It does not predict direction",
+          body: "It tells you liquidity gathered. Whether the price then rises or falls came out close to a coin flip when measured, and that is worth saying plainly.",
+        },
+        {
+          title: "It is not a trade signal",
+          body: "It will not tell you what to buy or sell. \"This is worth a look right now\" is where this service stops.",
+        },
+      ],
+    },
+
+    pricing: {
+      title: "Pricing",
+      body: "Try it free first, then decide.",
+      freeName: "Free",
+      freePrice: "$0",
+      freePeriod: "",
+      freeItems: [
+        "3 channels",
+        "Web push alerts",
+        "Alert history",
+        "Sensitivity test",
+      ],
+      freeCta: "Start free",
+      proName: "Pro",
+      proPrice: "$4",
+      proPeriod: " / mo",
+      proItems: ["Unlimited channels", "Everything in Free", "Priority support"],
+      proCta: "Coming soon",
+      proNote: "Billing is not open yet. Until it is, the free plan is what you get.",
+      popular: "Coming soon",
+    },
+
+    faq: {
+      title: "Frequently asked",
+      items: [
+        {
+          q: "Which coins can I watch?",
+          a: "The 13 largest by market cap — BTC, ETH, BNB, XRP, SOL and so on — all traded actively enough on Binance USD-M perpetuals. Thinly traded coins make the \"normal\" baseline itself unsteady, which makes the alert untrustworthy.",
+        },
+        {
+          q: "Do I need an exchange API key?",
+          a: "No. Only public market data is read. Nothing here places orders, so there is no reason — and no way — to reach your account.",
+        },
+        {
+          q: "Can I use it without signing up?",
+          a: "You can build a channel without an account. Those channels disappear when you close the tab, and no alerts can be delivered, because delivery needs somewhere to deliver to.",
+        },
+        {
+          q: "Do I have to install an app?",
+          a: "No. Browser push arrives with the tab closed, as long as the browser is running. iOS and Android apps are the next thing being built.",
+        },
+        {
+          q: "What if I get too many alerts?",
+          a: "Lower the sensitivity. The dial shows the new alerts-per-day as you move it, so you do not have to live with it for a few days to find out.",
+        },
+      ],
+    },
+
+    final: {
+      title: "Catch the next spike as it happens",
+      start: "Start free",
+    },
+
+    footer: {
+      tagline: "Crypto liquidity alerts",
+      app: "Open the app",
+    },
   },
 
   frameScale: {

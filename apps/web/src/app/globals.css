@@ -234,3 +234,31 @@ input[type="range"]::-moz-range-thumb {
   box-shadow: 0 0 10px rgb(56 189 248 / 0.5);
   cursor: pointer;
 }
+
+/*
+ * 랜딩의 알림 카드가 뜰 때. 아래에서 살짝 올라오며 나타난다.
+ *
+ * 알림이 "도착했다"는 느낌은 갑자기 나타나는 것보다 짧게 밀려 올라오는
+ * 쪽이 잘 읽힌다. 움직임을 줄여 달라고 한 사람에게는 애초에 카드가 정지
+ * 상태로 놓이므로(LiveTape) 이 규칙까지 갈 일이 없다.
+ */
+@keyframes flare-rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/*
+ * <details> 삼각형 지우기.
+ *
+ * list-none으로 대부분 사라지지만 사파리는 별도 가상 요소를 그린다.
+ * 랜딩 FAQ가 직접 +/x 표시를 그리므로 두 개가 겹쳐 보인다.
+ */
+summary::-webkit-details-marker {
+  display: none;
+}

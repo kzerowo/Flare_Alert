@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-_Last updated: 2026-08-16 08:17_
+_Last updated: 2026-08-22 23:14_
 
 ## Project Overview
 
@@ -111,9 +111,18 @@ All actively traded on Binance USDT. Coin icons live in `apps/web/public/coins/`
 │       │   └── coins/*.svg          # Coin icons for the 13 Binance symbols
 │       ├── src/app/
 │       │   ├── layout.tsx          # Reads locale cookie on the server, wraps LocaleProvider
-│       │   └── page.tsx            # AuthProvider > ChannelStoreProvider > AlertStoreProvider > MainApp
+│       │   ├── page.tsx            # Service introduction landing page
+│       │   ├── app/
+│       │   │   └── page.tsx        # Main app: AuthProvider > ChannelStoreProvider > AlertStoreProvider > MainApp
+│       │   └── admin/
+│       │       └── page.tsx        # Admin panel (placeholder)
 │       ├── src/middleware.ts       # Supabase session refresh (only place cookies can be written)
 │       ├── src/components/
+│       │   ├── landing/
+│       │   │   ├── Landing.tsx            # `/` page body: hero, why, how, slider, pricing, FAQ
+│       │   │   ├── LiveTape.tsx           # Scripted animated turnover tape + alert card
+│       │   │   ├── ScaleCompare.tsx       # One bar array at two scales — why a ratio travels
+│       │   │   └── AuthForward.tsx        # Forwards Supabase auth callbacks from `/` to `/app`
 │       │   ├── MainApp.tsx                # App root: nav, hero, tabbed channels/alerts view, error banner
 │       │   ├── AlertHistory.tsx           # Alert history display with channel filtering and deletion
 │       │   ├── ChannelCard.tsx            # Edit/delete/toggle actions; history button
@@ -126,7 +135,12 @@ All actively traded on Binance USDT. Coin icons live in `apps/web/public/coins/`
 │       │   ├── SensitivityTest.tsx        # Label real charts to find your own sensitivity level
 │       │   ├── VolumeChart.tsx            # Clickable turnover bars (volume only, linear, no baseline)
 │       │   ├── LanguageToggle.tsx         # ko/en segmented control
-│       │   └── Icon.tsx                   # Inline SVG icons
+│       │   ├── Icon.tsx                   # Inline SVG icons
+│       │   └── landing/
+│       │       ├── Landing.tsx            # Service introduction page: hero, feature showcase, pricing, FAQ
+│       │       ├── AuthForward.tsx        # Authentication callback forwarding: Supabase auth results → /app
+│       │       ├── LiveTape.tsx           # Landing hero demo component: simulated real-time ticker with animated alerts
+│       │       └── ScaleCompare.tsx       # Scale comparison visualization: large vs. small coin transaction volumes at different scales
 │       └── src/lib/
 │           ├── locale.ts                  # Locale primitives — NO "use client" (server reads these)
 │           ├── i18n.tsx                   # Dictionaries + LocaleProvider + useT()
@@ -933,3 +947,48 @@ All major components (MainApp, ChannelCard, AlertHistory, dialogs, SensitivityTe
 Changes touch: `globals.css` (new responsive utilities), `MainApp.tsx`, `ChannelCard.tsx`, `ChannelForm.tsx`, `AlertHistory.tsx`, `AuthDialog.tsx`, `ResetPasswordDialog.tsx`, `MyPageDialog.tsx`, `ConfirmDialog.tsx`, `SensitivityTest.tsx`, `VolumeChart.tsx`.
 
 This is purely a visual/UX refinement; no functional logic, state management, or API behavior changed.
+
+## Landing Page (added 2026-08-22)
+
+**`/` is now the service introduction; the app moved to `/app`.** The app opens on an empty channel list, which tells a first-time visitor nothing — "거래대금", "민감도", "3.5배" are all words the product assumes you already have. The landing exists to close that gap before anyone is asked to create a channel.
+
+`apps/web/src/components/landing/` holds four files: `Landing.tsx` (the page), `LiveTape.tsx` (the animated demo), `ScaleCompare.tsx` (the ratio explainer), `AuthForward.tsx` (the auth-callback bridge below).
+
+### Auth callbacks still land on `/`, and are forwarded in the browser
+
+`auth.tsx` passes `redirectTo: window.location.origin` for password reset and Google sign-in, so every provider round-trip returns to `/` — which no longer contains `AuthProvider` or `ResetPasswordDialog`. Changing `redirectTo` to `${origin}/app` would also require editing Supabase's redirect allowlist in the dashboard, i.e. a break that code alone cannot fix. **`AuthForward` forwards instead**: on mount it looks for `?code` / `?token_hash` / `?error*` in the query, or `access_token` / `error` / `type=recovery` in the fragment, and `location.replace(\"/app\" + search + hash)`.
+
+Two things this depends on:
+
+- **The fragment never reaches the server**, so the forward must happen in the browser. A server redirect would silently drop recovery tokens.
+- **The landing must not construct a Supabase browser client.** `detectSessionInUrl` would consume the `?code=` on `/` and leave nothing for `/app` to exchange. Nothing on the landing imports `lib/supabase/client`; keep it that way.
+
+`sw.js`'s notification-click fallback moved `/` → `/app`, and `AdminPage`'s three "home" links likewise — an alert or an admin console should never drop the user on a marketing page.
+
+### `?auth=login` / `?auth=signup` / `?new=1`
+
+The landing's buttons deep-link into the app: `?auth=...` opens the login/signup dialog, `?new=1` opens the create-channel view. **`?new=1` is what the sensitivity-test CTA uses** — the test lives inside `ChannelForm`, so linking to the bare channel list would drop the visitor one step short of the thing the landing just sold them.
+
+`MainApp` reads both parameters once on mount and strips them with `history.replaceState` (otherwise a refresh reopens the same screen forever). The auth dialog additionally waits for `authLoaded` — opening on a still-loading session flashes a login dialog at someone who is already signed in. Note `loaded` is destructured as `authLoaded` because `useChannels()` exports the same name.
+
+### The hero demo is scripted, and says so
+
+`LiveTape` does **not** connect to Binance. A visitor arriving during a quiet hour would watch a live tape do nothing, which is the opposite of an introduction. The sequence is a fixed seeded array (`mulberry32`, module scope, so server and client render the same first frame) with two bursts written into it. (An earlier draft ran a caption under the chart saying so explicitly; the user asked for it removed, along with a few other lines the copy pass judged self-evident or hedge-y — see § Content decisions.)
+
+The *rule* is real: the dashed baseline is the median of the visible bars excluding the newest, the threshold is 3.5× (the shipped default), and one crossing produces one alert card. `prefers-reduced-motion` freezes it on a post-burst frame rather than leaving an empty chart.
+
+Two bugs worth not reintroducing: bar keys are the absolute sequence index (`(head + index) % len`), not the array position, or every tick remounts all bars and the height transition never runs; and the alert card's dismissal timer keys off the card object, not the tick, or each tick clears the pending timeout and the card never goes away.
+
+### The landing reuses the real controls
+
+`SensitivitySlider` is the shipped component, not a mock-up — the alerts/day it prints comes from `SCALE_RATE_CURVES`, so a visitor who drags it before signing up sees the same numbers they will see after. `ScaleCompare` draws one relative array at two absolute scales for the same reason: the claim is that a ratio survives a 100× size difference, so the picture uses literally the same array.
+
+### Content decisions
+
+- **A section listing what the product does not do** (no direction, not a trade signal) sits above pricing. Direction measured close to a coin flip; a user who signs up expecting a buy signal churns on their first alert. A third item ("no hidden number") was cut in a later copy pass — the user judged it self-evident once the ratio is already shown live in § The landing reuses the real controls, and redundant explanation reads as padding. The `honest.items` grid is 2-up (`md:grid-cols-2`, capped `max-w-3xl`) to match, not 3-up.
+- **The sensitivity test is the headline feature, not a footnote.** "Is 5 alerts a day a lot?" is the actual barrier, and clicking bars on a real chart is the answer that needs no numeric literacy. Its "No numbers required" badge was cut for the same self-evident reason as above.
+- **Pro shows a "coming soon" panel, not a button.** Billing is not wired; a button that does nothing reads as a broken site.
+- **The hero title is a plain label, not a tagline.** It went through two revisions: a poetic two-liner ("The moment turnover spikes, we alert you") tested unclear about what the product *is*, so it was replaced with the literal **"급등 거래량 알림" / "Volume Spike Alerts"**. First-time-visitor clarity outranked flourish here.
+- A handful of explanatory asides were cut for being self-evident or hedge-y once seen in context: the "not a picture of the control" note under the live slider, the "here's why we're saying this" preamble on § What this alert does not do, and the closing line under the final CTA. The section headings and remaining body copy carry the same information without the meta-commentary.
+
+Both dictionaries carry the whole `landing` section — a Korean-only addition fails the build, as everywhere else.
